@@ -86,10 +86,10 @@ function refreshFoot() {
   Bell.mount();
   Intro.play();
   window.addEventListener('hashchange', route);
-  on('auth', () => { refreshFoot(); if (location.hash === '#settings') route(); });
+  on('auth', u => { refreshFoot(); if (location.hash === '#settings') route(); if (u && FB.isTeacher()) setTimeout(() => Keys.syncAll().catch(e => console.warn('명단 올리기 실패', e)), 1500); });
   on('pulled', () => { Brand.apply(); buildShell(); route(); });
   on('classes', refreshTop); on('lessons', refreshTop); on('ui', refreshTop);
   on('rerender', () => { refreshTop(); route(); });
   on('store', k => { if (k === 'brand') { Brand.apply(); buildShell(); route(); } });
-  on('syncerr', debounce(() => toast('클라우드 저장 실패 — 보안 규칙의 users 경로를 확인하세요', 'err', 5000), 4000));
+  on('syncerr', debounce(e => toast('클라우드 저장 실패 — ' + fbWhy(e), 'err', 6000), 4000));
 })();

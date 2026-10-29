@@ -11,9 +11,17 @@ service cloud.firestore {
     match /rooms/{room} {
       allow read: if true;                 // 학생 화면이 현재 활동을 읽음
       allow write: if isTeacher();
+      match /keys/{k} {                    // 학생 확인용(반·번호·이름·비밀번호를 섞은 값) — 목록 보기 불가
+        allow get: if true;
+        allow list, write: if isTeacher();
+      }
       match /responses/{id} {
-        allow create: if request.resource.size() < 900000
-                      && request.resource.data.act is string;   // 학생은 제출만
+        allow create: if request.resource.size() < 900000      // 학생은 제출만, 명단·비밀번호가 맞을 때만
+                      && request.resource.data.act is string
+                      && request.resource.data.k is string
+                      && exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))
+                      && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.num == request.resource.data.num
+                      && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.name == request.resource.data.name;
         allow read, update, delete: if isTeacher();             // 응답 열람은 교사만
       }
     }

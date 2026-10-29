@@ -1314,3 +1314,8 @@ body.student #clock{display:none}
 #clock.float{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:10070}
 #clockSlot{display:flex;align-items:center}
 @media(max-width:900px){#clock .ck-left{display:none!important}}
+
+/* 학생 확인(로그인) */
+.stu-card .pin-in{letter-spacing:.6em;text-align:center;font-weight:700}
+.stu-card .chips{margin:4px 0 8px}
+.stu-card .pin-in::placeholder{letter-spacing:normal;font-weight:400}

@@ -235,8 +235,8 @@ const FB = {
       if (firebase.auth) {
         this.auth = firebase.auth();
         this.auth.onAuthStateChanged(async u => {
-          this.user = u; emit('auth', u);
-          if (u) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패: 규칙(rules)과 로그인 계정을 확인하세요', 'err', 5000); } }
+          this.user = u; emit('auth', u); if (u) this.warnIfNotTeacher();
+          if (u) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패 — ' + fbWhy(e), 'err', 7000); } }
         });
       }
       return true;
@@ -244,12 +244,68 @@ const FB = {
   },
   async signIn() {
     if (!this.auth) return toast('Firebase가 설정되지 않았습니다', 'err');
-    try { await this.auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
-    catch (e) { console.error(e); toast('로그인 실패: ' + (e.code || e.message) + ' (Firebase 콘솔의 승인된 도메인을 확인하세요)', 'err', 6000); }
+    const pr = new firebase.auth.GoogleAuthProvider();
+    pr.setCustomParameters(window.LOGIN_EMAIL ? { prompt: 'select_account', login_hint: window.LOGIN_EMAIL } : { prompt: 'select_account' });
+    try { const r = await this.auth.signInWithPopup(pr); if (r && r.user) this.user = r.user; this.warnIfNotTeacher(); return this.user; }
+    catch (e) { console.error(e); toast('로그인 실패: ' + fbWhy(e), 'err', 7000); return null; }
+  },
+  /* 🩺 연결 점검: 로그인 → 내 자료 저장 → 학생 화면 열기 → 응답 보기 순서로 실제로 시험 */
+  async check() {
+    const out = [], add = (ok, t, fix = '') => out.push({ ok, t, fix });
+    if (!this.ready) { add(false, '서버 연결', 'config.js의 Firebase 값과 인터넷 연결을 확인하세요.'); return out; }
+    add(true, `서버 연결 (${this.cfg.projectId})`);
+    if (!this.user) { add(false, '교사 로그인', '아래 [교사 로그인 (구글)] 버튼을 눌러 로그인한 뒤 다시 점검하세요.'); return out; }
+    add(true, `교사 로그인 (${this.user.email})`);
+    let usersOK = true;
+    try { await this.db.collection('users').doc(this.user.uid).collection('check').doc('ping').set({ t: Date.now() }); add(true, '내 자료 클라우드 저장 (지문·칠판·출결 등)'); }
+    catch (e) {
+      usersOK = false;
+      add(false, '내 자료 클라우드 저장', /permission/.test(e.code || '') ? '보안 규칙이 아직 게시되지 않은 것 같아요. 아래 규칙을 복사해 Firebase 콘솔 → Firestore Database → 규칙 탭에 붙여 넣고 [게시]하세요.' : fbWhy(e));
+    }
+    try { const ref = this.db.collection('rooms').doc('__check'); await ref.set({ kind: 'none', t: Date.now() }); await ref.delete(); add(true, '학생 화면에 활동 열기'); }
+    catch (e) {
+      add(false, '학생 화면에 활동 열기', /permission/.test(e.code || '')
+        ? (usersOK ? `보안 규칙의 선생님 이메일 목록에 지금 계정(${this.user.email})이 없어요. 규칙의 [ ] 안 이메일을 이 계정으로 바꾸거나 한 줄 추가한 뒤 [게시]하세요. (다른 구글 계정으로 로그인했다면 로그아웃 후 목록에 있는 계정으로 다시 로그인해도 돼요.)` : '위 항목과 같은 이유예요 — 규칙을 게시하면 함께 해결돼요.')
+        : fbWhy(e));
+    }
+    try { const kr = this.db.collection('rooms').doc('__check').collection('keys').doc('ping'); await kr.set({ num: '0', name: '점검' }); await kr.delete(); add(true, '학생 명단·비밀번호 올리기'); }
+    catch (e) { add(false, '학생 명단·비밀번호 올리기', /permission/.test(e.code || '') ? '보안 규칙이 옛 버전이에요. 아래 새 규칙을 복사해 Firebase 콘솔 → Firestore Database → 규칙 탭에 붙여 넣고 [게시]하세요.' : fbWhy(e)); }
+    try { await this.db.collection('rooms').doc('__check').collection('responses').limit(1).get(); add(true, '학생 응답 보기'); }
+    catch (e) { add(false, '학생 응답 보기', /permission/.test(e.code || '') ? '위의 이메일 목록 문제와 같은 이유예요.' : fbWhy(e)); }
+    return out;
   },
   signOut() { this.auth && this.auth.signOut(); },
+  /* 로그인한 계정이 선생님 목록(config.js TEACHER_EMAILS)에 있는지 */
+  isTeacher() { const L = window.TEACHER_EMAILS; return !!this.user && (!L || !L.length || L.map(x => x.toLowerCase()).includes((this.user.email || '').toLowerCase())); },
+  warnIfNotTeacher() { if (this.user && !this.isTeacher()) toast(`지금 계정(${this.user.email})은 선생님 목록에 없어요. ${window.LOGIN_EMAIL || '등록된 계정'}으로 다시 로그인해 주세요.`, 'warn', 8000); },
+  /* 목록에 있는 계정으로 로그인된 상태를 보장 (아니면 로그인 창을 띄움) */
+  async ensureTeacher() {
+    if (!this.ready) return true;
+    if (this.user && this.isTeacher()) return true;
+    if (this.user) { toast(`${this.user.email} 계정으로는 열 수 없어요 — ${window.LOGIN_EMAIL || '선생님 계정'}으로 바꿔 로그인합니다`, 'warn', 5000); await this.auth.signOut(); this.user = null; }
+    else toast('교사 로그인이 필요해요 — 로그인 창을 엽니다', 'warn', 4000);
+    const u = await this.signIn();
+    return !!(u && this.isTeacher());
+  },
   studentParam() { return this.ready && this.source !== 'config.js' ? '&c=' + cfgToParam(this.cfg) : ''; }
 };
+
+/* Firebase 오류를 선생님이 알아듣는 말로 바꾸기 */
+function fbWhy(e) {
+  const c = String((e && (e.code || e.message)) || '');
+  if (/unauthorized-domain/.test(c)) return `이 주소(${location.hostname})가 Firebase의 승인된 도메인에 없어요. Firebase 콘솔 → Authentication → 설정 → 승인된 도메인에 추가하세요.`;
+  if (/popup-blocked/.test(c)) return '브라우저가 로그인 창을 막았어요. 주소창 오른쪽의 팝업 차단 표시를 눌러 허용해 주세요.';
+  if (/popup-closed|cancelled-popup/.test(c)) return '로그인 창이 닫혔어요. 다시 눌러 주세요.';
+  if (/operation-not-allowed/.test(c)) return 'Firebase에서 Google 로그인이 꺼져 있어요. Authentication → 로그인 방법 → Google 사용 설정.';
+  if (!FB.ready) return '서버(Firebase)에 연결되지 않았어요. config.js 값과 인터넷 연결을 확인하세요.';
+  if (!FB.user) return '교사 로그인이 안 되어 있어요. 왼쪽 아래 [교사 로그인]을 눌러 주세요.';
+  if (/permission/.test(c)) return FB.isTeacher()
+    ? `계정(${FB.user.email})은 맞는데 Firebase에 보안 규칙이 아직 게시되지 않았어요. Firebase 콘솔 → Firestore Database → 규칙 탭에 firestore.rules 내용을 붙여 넣고 [게시]해 주세요. (한 번만 하면 돼요)`
+    : `지금 계정(${FB.user.email})은 선생님 목록에 없어요. 왼쪽 아래에서 로그아웃하고 ${window.LOGIN_EMAIL || '등록된 계정'}으로 로그인해 주세요.`;
+  if (/not-found|failed-precondition/.test(c)) return 'Firestore 데이터베이스가 아직 없어요. Firebase 콘솔 → Firestore Database → 데이터베이스 만들기.';
+  if (/unavailable|network/.test(c)) return '인터넷 연결이 불안정해요. 잠시 후 다시 해 보세요.';
+  return '문제가 생겼어요 (' + c + ')';
+}
 
 /* ---------- 실시간 방(room)·응답 ---------- */
 const Live = {
@@ -280,7 +336,7 @@ const Live = {
       let q = FB.db.collection('rooms').doc(room).collection('responses');
       if (actId) q = q.where('act', '==', actId);
       return q.onSnapshot(s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.ts - b.ts)),
-        e => { console.error(e); toast('응답을 볼 권한이 없습니다. 교사 계정으로 로그인했는지, 보안 규칙에 이메일이 들어 있는지 확인하세요', 'err', 6000); cb([]); });
+        e => { console.error(e); toast('학생 응답을 불러오지 못했어요 — ' + fbWhy(e), 'err', 7000); cb([]); });
     }
     const f = () => cb(this._lsGet('resp:' + room, []).filter(r => !actId || r.act === actId));
     f();
@@ -297,11 +353,63 @@ const Live = {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).collection('responses').doc(id).delete();
     this._lsSet('resp:' + room, this._lsGet('resp:' + room, []).filter(r => r.id !== id)); emit('resp', room);
   },
+  /* 학생 확인 열쇠: rooms/{room}/keys/{해시} — 학생은 정확한 해시로 1건만 조회 가능(목록 보기 불가) */
+  async getKey(room, k) {
+    if (this.cloud()) { const d = await FB.db.collection('rooms').doc(room).collection('keys').doc(k).get(); return d.exists ? d.data() : null; }
+    return this._lsGet('keys:' + room, {})[k] || null;
+  },
+  async putKeys(room, map, meta) {
+    if (this.cloud()) {
+      const rref = FB.db.collection('rooms').doc(room), col = rref.collection('keys');
+      const old = await col.get(), ops = [];
+      old.forEach(d => { if (!map[d.id]) ops.push(['del', d.ref]); });
+      for (const [k, v] of Object.entries(map)) ops.push(['set', col.doc(k), v]);
+      for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, r, v]) => t === 'del' ? b.delete(r) : b.set(r, v)); await b.commit(); }
+      await rref.set(meta, { merge: true });
+      return;
+    }
+    this._lsSet('keys:' + room, map);
+    this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...meta }); emit('room', room);
+  },
   async updateResp(room, id, patch) {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).collection('responses').doc(id).set(patch, { merge: true });
     const arr = this._lsGet('resp:' + room, []); const r = arr.find(x => x.id === id); if (r) Object.assign(r, patch); this._lsSet('resp:' + room, arr); emit('resp', room);
   }
 };
+/* ---------- 학생 확인: 반(학급)·번호·이름·개인 비밀번호 4자리 ---------- */
+const Keys = {
+  norm(s) { return String(s ?? '').replace(/\s+/g, ''); },
+  numN(n) { const t = String(n ?? '').trim(); return /^\d+$/.test(t) ? String(+t) : t; },
+  async hash(room, num, name, pin) {
+    const txt = [room, this.numN(num), this.norm(name), String(pin ?? '').trim()].join('|');
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
+    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+  },
+  newPin() { const a = new Uint32Array(1); crypto.getRandomValues(a); return String(a[0] % 10000).padStart(4, '0'); },
+  /* 비밀번호 없는 학생에게 새로 만들어 줌 → 만든 수 */
+  ensurePins(cls) { let n = 0; for (const s of cls.students || []) if (!/^\d{4}$/.test(s.pin || '')) { s.pin = this.newPin(); n++; } return n; },
+  siblings() { return S.classes().filter(c => c.room).map(c => ({ name: c.name, room: c.room })); },
+  canPublish() { return !Live.cloud() || (FB.user && FB.isTeacher()); },
+  async sync(cls, force = false) {
+    if (!cls.room) cls.room = uid(10);
+    this.ensurePins(cls);
+    const entries = await Promise.all(S.students(cls).filter(s => s.name).map(async s => [await this.hash(cls.room, s.num, s.name, s.pin), { num: this.numN(s.num), name: String(s.name).trim() }]));
+    const meta = { classLabel: cls.name, subject: Brand.get().subject, siblings: this.siblings() };
+    const sig = await this.hash(cls.room, entries.map(e => e[0]).sort().join(','), JSON.stringify(meta), 'v1');
+    if (!force && cls.keysSig === sig) return false;
+    await Live.putKeys(cls.room, Object.fromEntries(entries), meta);
+    cls.keysSig = sig; return true;
+  },
+  /* 모든 학급의 명단·비밀번호를 서버에 반영 (바뀐 학급만) */
+  async syncAll(force = false) {
+    if (!this.canPublish() || !window.crypto?.subtle) return 0;
+    const cs = S.classes(), before = JSON.stringify(cs); let n = 0;
+    try { for (const c of cs) if (await this.sync(c, force)) n++; }
+    finally { if (JSON.stringify(cs) !== before) S.saveClasses(cs); }
+    return n;
+  }
+};
+
 /* 학생별 최신 응답만 남기기 */
 function latestBy(list, keyFn) {
   const m = new Map(); for (const r of list) m.set(keyFn(r), r); return [...m.values()];

@@ -15,10 +15,12 @@ function needRoom() {
 async function openActivity(kind, act) {
   const room = needRoom(); if (!room) return;
   const c = S.cls();
+  if (Live.cloud() && !(await FB.ensureTeacher())) return;
+  try { await Keys.syncAll(); } catch (e) { console.error(e); toast('학생 명단·비밀번호를 서버에 올리지 못했어요 — ' + fbWhy(e), 'err', 8000); return; }
   try {
-    await Live.setRoom(room, { kind, act, date: todayStr(), classLabel: c.name, subject: Brand.get().subject, lesson: S.lesson()?.title || '', ...(kind === 'share' ? { groups: Groups.map() } : {}) });
+    await Live.setRoom(room, { kind, act, date: todayStr(), classLabel: c.name, subject: Brand.get().subject, siblings: Keys.siblings(), lesson: S.lesson()?.title || '', ...(kind === 'share' ? { groups: Groups.map() } : {}) });
     toast(kind === 'none' ? '학생 화면을 대기 상태로 바꿨습니다' : '학생 화면에 열었습니다');
-  } catch (e) { console.error(e); toast('열기 실패: 교사 로그인과 보안 규칙을 확인하세요 (' + (e.code || e.message) + ')', 'err', 6000); }
+  } catch (e) { console.error(e); toast('학생 화면에 열지 못했어요 — ' + fbWhy(e), 'err', 8000); }
 }
 function qrPanel(big = false) {
   const url = S.studentURL();

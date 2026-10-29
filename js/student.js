@@ -6,43 +6,90 @@ function startStudent(room, pv = null) {
   // pv: 교사용 미리보기 { kind, act, mount } — 서버에 보내지 않음
   if (!pv) document.body.className = 'student';
   const app = pv ? pv.mount : $('#app'); app.replaceChildren();
-  const me = pv ? { num: '7', name: '미리보기' } : (() => { try { return JSON.parse(localStorage.getItem('stu:me')) || {}; } catch { return {}; } })();
+  /* 로그인 정보: 학급(방)마다 따로 기억 — { [room]: { room, cls, num, name, k } } */
+  const AUTH = 'stu:auth';
+  const auths = () => { try { return JSON.parse(localStorage.getItem(AUTH)) || {}; } catch { return {}; } };
+  const saveAuth = (r, a) => { const all = auths(); if (a) all[r] = a; else delete all[r]; localStorage.setItem(AUTH, JSON.stringify(all)); };
+  let me = pv ? { num: '7', name: '미리보기', cls: S.cls()?.name || '', k: 'preview' } : (auths()[room] || {});
   const head = h('header', { class: 'stu-head' }, h('b', { class: 'subj' }, '수업'), h('span', { class: 'cls' }), h('span', { class: 'grow' }),
-    h('button', { class: 'btn sm', onclick: () => editMe(true) }, '👤'));
+    h('button', { class: 'btn sm', title: '나가기(다른 학생으로)', onclick: async () => {
+      if (pv) return toast('미리보기에서는 나갈 수 없어요', 'warn');
+      if (!me.k) return;
+      if (await confirmBox(`${me.num}번 ${me.name} 학생에서 나갈까요? 다시 들어오려면 비밀번호가 필요해요.`, '나가기')) { saveAuth(room, null); me = {}; render(); }
+    } }, '👤'));
   const main = h('main', { class: 'stu-main' });
   app.append(head, main);
   if (!pv && !Live.cloud() && !location.search.includes('local')) {
     // 로컬 모드: 같은 브라우저에서만 동작 (교사 미리보기용)
     main.append(h('div', { class: 'warnbox' }, '서버가 연결되지 않은 미리보기 모드입니다. 같은 컴퓨터의 교사 화면과만 연동됩니다.'));
   }
-  let room$ = {}, sentFor = {};
-  const meOK = () => me.num && me.name;
-  function editMe(force) {
-    if (meOK() && !force) return render();
-    const n = h('input', { type: 'number', inputmode: 'numeric', placeholder: '번호', value: me.num || '', class: 'big-in' });
-    const nm = h('input', { placeholder: '이름', value: me.name || '', class: 'big-in' });
-    main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '👋 번호와 이름을 입력하세요'), h('p', { class: 'muted' }, '한 번만 입력하면 이 휴대폰에 기억됩니다.'), n, nm,
-      h('button', { class: 'btn primary lg full', onclick: () => {
-        if (!n.value || !nm.value.trim()) return toast('번호와 이름을 모두 입력하세요', 'warn');
-        me.num = String(+n.value); me.name = nm.value.trim(); localStorage.setItem('stu:me', JSON.stringify(me)); render();
-      } }, '시작하기')));
+  let room$ = {}, sentFor = {}, view = '';
+  const meOK = () => !!(me.k && me.num && me.name);
+  const saveMe = () => { if (!pv) saveAuth(room, me); };
+  /* 다른 학급(반)을 고른 경우 그 학급 화면으로 옮기기 */
+  const goRoom = r => { const u = new URL(location.href); u.searchParams.set('r', r); location.replace(u.toString()); };
+  function loginView(msg) {
+    view = 'login';
+    const sib = room$.siblings && room$.siblings.length ? room$.siblings : room$.classLabel ? [{ name: room$.classLabel, room }] : [];
+    if (!sib.length) {
+      main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '📋'), h('h2', null, '선생님이 아직 학생 명단을 올리지 않았어요'), h('p', { class: 'muted' }, '선생님께 알려 주세요. 명단이 올라오면 이 화면이 자동으로 바뀌어요.')));
+      return;
+    }
+    let pick = sib.some(x => x.room === room) ? room : (sib.length === 1 ? sib[0].room : null);
+    const chips = h('div', { class: 'chips' }, sib.map(x => h('button', { class: 'chip' + (x.room === pick ? ' on' : ''), onclick: e => { pick = x.room; $$('.chip', chips).forEach(b => b.classList.remove('on')); e.currentTarget.classList.add('on'); } }, x.name)));
+    const n = h('input', { type: 'number', inputmode: 'numeric', placeholder: '번호', class: 'big-in', autocomplete: 'off' });
+    const nm = h('input', { placeholder: '이름', class: 'big-in', autocomplete: 'off' });
+    const pw = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 4, placeholder: '비밀번호 4자리', class: 'big-in pin-in', autocomplete: 'off' });
+    const btn = h('button', { class: 'btn primary lg full' }, '들어가기');
+    const go = async () => {
+      const lock = (() => { try { return JSON.parse(localStorage.getItem('stu:fail')) || { n: 0, until: 0 }; } catch { return { n: 0, until: 0 }; } })();
+      if (lock.until > Date.now()) return toast(`잠시 후 다시 해 보세요 (${Math.ceil((lock.until - Date.now()) / 1000)}초)`, 'warn');
+      if (!pick) return toast('반을 골라 주세요', 'warn');
+      if (!n.value || !nm.value.trim()) return toast('번호와 이름을 입력하세요', 'warn');
+      if (!/^\d{4}$/.test(pw.value.trim())) return toast('비밀번호는 숫자 4자리예요', 'warn');
+      if (!window.crypto?.subtle) return toast('이 브라우저에서는 들어갈 수 없어요. 크롬·사파리로 열어 주세요', 'err', 5000);
+      btn.disabled = true; btn.textContent = '확인 중…';
+      try {
+        const k = await Keys.hash(pick, n.value, nm.value, pw.value);
+        const d = await Live.getKey(pick, k);
+        if (!d) {
+          lock.n = (lock.n || 0) + 1; if (lock.n >= 5) { lock.n = 0; lock.until = Date.now() + 60000; }
+          localStorage.setItem('stu:fail', JSON.stringify(lock));
+          toast(lock.until > Date.now() ? '5번 틀렸어요. 1분 뒤에 다시 해 보세요' : '반·번호·이름·비밀번호가 맞지 않아요. 비밀번호를 모르면 선생님께 물어보세요', 'err', 5000);
+          pw.value = ''; btn.disabled = false; btn.textContent = '들어가기'; return;
+        }
+        localStorage.setItem('stu:fail', JSON.stringify({ n: 0, until: 0 }));
+        const a = { room: pick, cls: (sib.find(x => x.room === pick) || {}).name || '', num: d.num, name: d.name, k };
+        saveAuth(pick, a);
+        if (pick !== room) return goRoom(pick);
+        me = a; render();
+      } catch (e) { console.error(e); toast('확인하지 못했어요. 인터넷 연결을 확인하세요 (' + (e.code || e.message) + ')', 'err', 5000); btn.disabled = false; btn.textContent = '들어가기'; }
+    };
+    btn.onclick = go; pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '👋 우리 반 학생 확인'), msg ? h('div', { class: 'warnbox small' }, msg) : h('p', { class: 'muted' }, '한 번 들어오면 이 휴대폰에 기억돼요.'),
+      h('label', null, '반'), chips, h('label', null, '번호 · 이름'), n, nm, h('label', null, '비밀번호 (선생님께 받은 숫자 4자리)'), pw, btn));
   }
   const send = async (data, btn) => {
     btn.disabled = true; const old = btn.textContent; btn.textContent = '보내는 중…';
     if (pv) { toast('미리보기예요 — 실제로 제출되지 않아요', 'ok'); sentFor[room$.act.id] = true; render(); return; }
     try {
-      await Live.addResp(room, { kind: room$.kind, act: room$.act.id, q: room$.act.q || room$.act.title || '', date: room$.date || todayStr(), num: me.num, name: me.name, ...data });
+      await Live.addResp(room, { kind: room$.kind, act: room$.act.id, q: room$.act.q || room$.act.title || '', date: room$.date || todayStr(), num: me.num, name: me.name, k: me.k, ...data });
       sentFor[room$.act.id] = true; toast('제출했어요! 👍', 'ok'); render();
-    } catch (e) { console.error(e); toast('제출 실패: 잠시 후 다시 시도하세요 (' + (e.code || e.message) + ')', 'err', 5000); btn.disabled = false; btn.textContent = old; }
+    } catch (e) {
+      console.error(e);
+      if (/permission/.test(e.code || '')) { saveAuth(room, null); me = {}; loginView('비밀번호가 바뀌었거나 명단이 바뀌었어요. 다시 들어와 주세요. (쓴 내용은 다시 입력해야 해요)'); return; }
+      toast('제출 실패: 잠시 후 다시 시도하세요 (' + (e.code || e.message) + ')', 'err', 5000); btn.disabled = false; btn.textContent = old;
+    }
   };
   const done = (msg) => h('div', { class: 'stu-done' }, h('div', { class: 'big' }, '✅'), h('h2', null, msg || '제출 완료!'), h('p', { class: 'muted' }, '다시 제출하면 최신 응답으로 바뀝니다. 선생님이 다음 활동을 열면 화면이 자동으로 바뀌어요.'),
     h('button', { class: 'btn', onclick: () => { sentFor[room$.act.id] = false; render(); } }, '다시 제출하기'));
   function render() {
-    if (!meOK()) return editMe();
     $('.subj', head).textContent = room$.subject || '수업'; if (!pv) document.title = room$.subject || '수업';
-    $('.cls', head).textContent = ` · ${room$.classLabel || ''} · ${me.num}번 ${me.name}`;
+    if (room$.error) { view = 'err'; main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '연결 오류'), h('p', null, '선생님께 알려 주세요: ' + room$.error))); return; }
+    if (!meOK()) { $('.cls', head).textContent = room$.classLabel ? ' · ' + room$.classLabel : ''; return loginView(); }
+    view = 'main';
+    $('.cls', head).textContent = ` · ${room$.classLabel || me.cls || ''} · ${me.num}번 ${me.name}`;
     const k = room$.kind, a = room$.act || {};
-    if (room$.error) { main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '연결 오류'), h('p', null, '선생님께 알려 주세요: ' + room$.error))); return; }
     if (!k || k === 'none' || !a.id) { main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '⏳'), h('h2', null, '선생님이 활동을 열 때까지 기다려 주세요'), h('p', { class: 'muted' }, '이 화면을 켜 두면 자동으로 바뀝니다.'))); return; }
     if (sentFor[a.id]) { main.replaceChildren(done()); return; }
     if (k === 'open') main.replaceChildren(openForm(a));
@@ -82,7 +129,7 @@ function startStudent(room, pv = null) {
     const btn = h('button', { class: 'btn primary lg full' }, '발표 자료 올리기');
     btn.onclick = () => {
       if (!t.value.trim() && !c.value.trim()) return toast('제목이나 내용을 입력하세요', 'warn');
-      me.group = g.value; me.members = mem.value; localStorage.setItem('stu:me', JSON.stringify(me));
+      me.group = g.value; me.members = mem.value; saveMe();
       send({ group: +g.value, presenter: me.name, members: mem.value, title: t.value.trim(), content: c.value.trim(), video: v.value.trim(), image: img }, btn);
     };
     return h('div', { class: 'stu-card' }, h('div', { class: 'tag' }, '🤝 배움공유 · 모둠 발표 자료'), h('h2', { class: 'q' }, a.title), a.guide ? h('div', { class: 'guide' }, a.guide) : null,
@@ -105,8 +152,15 @@ function startStudent(room, pv = null) {
       h('label', null, '오늘 수업 나의 참여도'), stars, btn);
   }
   if (pv) { room$ = { kind: pv.kind, act: pv.act, subject: Brand.get().subject, classLabel: S.cls()?.name || '', groups: pv.kind === 'share' ? Groups.map?.() : null }; render(); return; }
-  Live.watchRoom(room, d => { const changed = (d.act && d.act.id) !== (room$.act && room$.act.id) || d.kind !== room$.kind; room$ = d; if (changed || !main.childNodes.length || room$.error) render(); else if (!meOK()) editMe(); });
-  render();
+  Live.watchRoom(room, d => {
+    const changed = (d.act && d.act.id) !== (room$.act && room$.act.id) || d.kind !== room$.kind;
+    const hadSib = !!((room$.siblings && room$.siblings.length) || room$.classLabel);
+    room$ = d;
+    if (room$.error) return render();
+    if (!meOK()) { if (view !== 'login' || !hadSib) render(); return; }   // 입력 중인 칸은 지우지 않기
+    if (changed || view !== 'main') render();
+  });
+  if (!view) main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '⏳'), h('h2', null, '연결하는 중…')));
 }
 
 /* 교사용: 학생 휴대폰 화면 미리보기 */

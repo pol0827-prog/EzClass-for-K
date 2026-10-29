@@ -19,3 +19,6 @@ window.TEACHER_EMAILS = [
   'pol082753@gmail.com',
   'pol0827@goedu.kr'
 ];
+
+/* 교사 로그인 때 먼저 골라 줄 계정 (로그인 창에 이 계정이 바로 뜹니다) */
+window.LOGIN_EMAIL = 'pol0827@goedu.kr';
