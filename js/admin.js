@@ -40,7 +40,7 @@ function renderBoard() {
   };
   ink.onTextRequest = p => {
     const hit = [...ink.items].reverse().find(it => it.type === 'text' && p[0] >= it.x - 10 && p[1] >= it.y - 10 && p[1] <= it.y + it.size * 1.15 * it.text.split('\n').length + 10 && p[0] <= it.x + Math.max(...it.text.split('\n').map(l => l.length)) * it.size + 10);
-    if (hit) return boardTextDialog(ink, t => { ink._snap(); Object.assign(hit, t); ink.render(); ink._changed(); }, hit);
+    if (hit) return boardTextDialog(ink, t => { ink._snap(); Object.assign(hit, t); hit.o = ++ink.seq; ink.render(); ink._changed(); }, hit);
     boardTextDialog(ink, t => ink.addItem({ type: 'text', x: p[0], y: p[1], w: 0, h: 0, ...t }));
   };
   const toolSlot = h('div', { class: 'tool-slot' });

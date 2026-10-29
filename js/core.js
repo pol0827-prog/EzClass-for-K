@@ -564,6 +564,7 @@ class Ink {
     this.w = w; this.h = h; this.onChange = onChange; this.chalk = chalk;
     this.strokes = []; this.items = []; this.undoStack = []; this.redoStack = [];
     this.tool = 'pen'; this.color = '#e53935'; this.size = 4; this.enabled = true;
+    this.eraserSize = Store.get('local:eraserSize', 2); this.seq = 0; this.hover = null;
     this.imgCache = new Map(); this._raf = 0;
     this._bind(); this.setEnabled(true);
   }
@@ -590,11 +591,16 @@ class Ink {
       const p = this._pt(e);
       if (this.tool === 'text') { this.onTextRequest && this.onTextRequest(p, e); return; }
       this._snap();
-      if (this.tool === 'eraser') { this.erasing = true; this._eraseAt(p); return; }
-      this.cur = { tool: this.tool, color: this.color, size: this.size, pts: [p] };
+      if (this.tool === 'strokeEraser') { this.erasing = true; this._eraseAt(p); return; }
+      if (this.tool === 'eraser') {    // 문지르는 지우개: 닿은 곳만 지움 (펜·글자·그림 모두)
+        this.cur = { tool: 'erase', color: '#000', size: this.eraserPx(), pts: [p], o: ++this.seq };
+        this.strokes.push(this.cur); this._req(); return;
+      }
+      this.cur = { tool: this.tool, color: this.color, size: this.size, pts: [p], o: ++this.seq };
       this.strokes.push(this.cur); this._req();
     });
     c.addEventListener('pointermove', e => {
+      if (this.tool === 'eraser' || this.tool === 'strokeEraser') { this.hover = this._pt(e); this._req(); } else if (this.hover) { this.hover = null; this._req(); }
       if (this.erasing) { this._eraseAt(this._pt(e)); return; }
       if (!this.cur) return;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
@@ -605,26 +611,49 @@ class Ink {
       if (this.erasing) { this.erasing = false; this._changed(); }
       if (this.cur) { if (this.cur.pts.length === 1) this.cur.pts.push([this.cur.pts[0][0] + .1, this.cur.pts[0][1] + .1]); this.cur = null; this._changed(); this._req(); }
     };
-    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end); c.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') end(); });
+    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end); c.addEventListener('pointerleave', e => { if (this.hover) { this.hover = null; this._req(); } if (e.pointerType === 'mouse') end(); });
   }
+  /* 지우개 크기 5단계 (판서 좌표 기준 지름) */
+  eraserPx() { return [12, 28, 56, 110, 200][this.eraserSize] || 56; }
+  /* 글자 덩어리의 차지 범위 */
+  _box(it) {
+    if (it.type !== 'text') return { x: it.x, y: it.y, w: it.w || 0, h: it.h || 0 };
+    const ctx = this.ctx; ctx.save(); ctx.font = this._font(it);
+    const ls = String(it.text || '').split('\n'), w = Math.max(0, ...ls.map(l => ctx.measureText(l).width)); ctx.restore();
+    return { x: it.x, y: it.y, w, h: ls.length * it.size * 1.15 };
+  }
+  _font(it) { return `${it.bold ? '700 ' : ''}${it.size}px ${it.font ? `"${it.font}", 'Noto Sans KR', sans-serif` : this.chalk ? "'Nanum Pen Script', cursive" : "'Noto Sans KR', sans-serif"}`; }
   _eraseAt([x, y]) {
-    const r = Math.max(10, this.size * 3);
+    const r = Math.max(10, this.eraserPx() / 2);
     const before = this.strokes.length + this.items.length;
-    this.strokes = this.strokes.filter(s => !s.pts.some(p => (p[0] - x) ** 2 + (p[1] - y) ** 2 < (r + s.size / 2) ** 2));
-    this.items = this.items.filter(it => !(x >= it.x && x <= it.x + (it.w || 0) && y >= it.y && y <= it.y + (it.h || 0)));
+    this.strokes = this.strokes.filter(s => s.tool === 'erase' || !s.pts.some(p => (p[0] - x) ** 2 + (p[1] - y) ** 2 < (r + s.size / 2) ** 2));
+    this.items = this.items.filter(it => { const b = this._box(it); return !(x >= b.x - r && x <= b.x + b.w + r && y >= b.y - r && y <= b.y + b.h + r); });
     if (this.strokes.length + this.items.length !== before) this._req();
   }
   _req() { if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = 0; this.render(); }); }
   undo() { const st = this.undoStack.pop(); if (!st) return; this.redoStack.push({ s: this.strokes.slice(), i: this.items.slice() }); this.strokes = st.s; this.items = st.i; this.render(); this._changed(); }
   redo() { const st = this.redoStack.pop(); if (!st) return; this.undoStack.push({ s: this.strokes.slice(), i: this.items.slice() }); this.strokes = st.s; this.items = st.i; this.render(); this._changed(); }
   clear() { if (!this.strokes.length && !this.items.length) return; this._snap(); this.strokes = []; this.items = []; this.render(); this._changed(); }
-  addItem(it) { this._snap(); this.items.push(it); this.render(); this._changed(); }
+  addItem(it) { this._snap(); it.o = ++this.seq; this.items.push(it); this.render(); this._changed(); }
+  /* 그리는 순서: 글자·그림·획·지우개 자국을 쓴 순서대로 (지우개는 그 앞에 그린 것만 지움) */
+  _layers() {
+    const L = [];
+    this.items.forEach((it, i) => L.push([it.o ?? (-2e9 + i), 0, it]));
+    this.strokes.forEach((st, i) => L.push([st.o ?? (-1e9 + i), 1, st]));
+    return L.sort((a, b) => a[0] - b[0]);
+  }
+  _paint(ctx) { for (const [, k, v] of this._layers()) k ? this._drawStroke(ctx, v) : this._drawItem(ctx, v); }
   render() {
     const { ctx, c } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(c.width / this.w, 0, 0, c.height / this.h, 0, 0);
-    for (const it of this.items) this._drawItem(ctx, it);
-    for (const s of this.strokes) this._drawStroke(ctx, s);
+    this._paint(ctx);
+    if (this.hover && this.enabled) {   // 지우개 크기 미리 보기 동그라미
+      const r = this.eraserPx() / 2; ctx.save(); ctx.globalCompositeOperation = 'source-over';
+      ctx.beginPath(); ctx.arc(this.hover[0], this.hover[1], r, 0, Math.PI * 2);
+      ctx.lineWidth = Math.max(1.5, this.w / 900); ctx.strokeStyle = this.chalk ? 'rgba(255,255,255,.85)' : 'rgba(30,41,59,.75)'; ctx.setLineDash([6, 5]); ctx.stroke();
+      ctx.restore();
+    }
   }
   _drawItem(ctx, it) {
     if (it.type === 'img') {
@@ -632,7 +661,7 @@ class Ink {
       if (!im) { im = new Image(); im.onload = () => this._req(); im.src = it.src; this.imgCache.set(it.src, im); }
       if (im.complete && im.naturalWidth) ctx.drawImage(im, it.x, it.y, it.w, it.h);
     } else if (it.type === 'text') {
-      ctx.save(); ctx.fillStyle = it.color; ctx.font = `${it.bold ? '700 ' : ''}${it.size}px ${it.font ? `"${it.font}", 'Noto Sans KR', sans-serif` : this.chalk ? "'Nanum Pen Script', cursive" : "'Noto Sans KR', sans-serif"}`; ctx.textBaseline = 'top';
+      ctx.save(); ctx.fillStyle = it.color; ctx.font = this._font(it); ctx.textBaseline = 'top';
       if (it.font && document.fonts && !document.fonts.check(`20px "${it.font}"`, '가')) (window.boardFontLoad ? boardFontLoad(it.font) : Promise.resolve()).then(() => this._req());
       if (this.chalk) { ctx.shadowColor = it.color; ctx.shadowBlur = 2; }
       it.text.split('\n').forEach((ln, i) => ctx.fillText(ln, it.x, it.y + i * it.size * 1.15));
@@ -642,7 +671,8 @@ class Ink {
   _drawStroke(ctx, s) {
     const p = s.pts; if (!p.length) return;
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = s.color;
-    if (s.tool === 'hl') { ctx.globalAlpha = 0.33; ctx.lineWidth = s.size * 4.5; ctx.lineCap = 'square'; }
+    if (s.tool === 'erase') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000'; ctx.lineWidth = s.size; ctx.shadowBlur = 0; }
+    else if (s.tool === 'hl') { ctx.globalAlpha = 0.33; ctx.lineWidth = s.size * 4.5; ctx.lineCap = 'square'; }
     else { ctx.lineWidth = s.size; if (this.chalk) { ctx.shadowColor = s.color; ctx.shadowBlur = s.size * 0.9; ctx.globalAlpha = 0.92; } }
     ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
     for (let i = 1; i < p.length - 1; i++) { const mx = (p[i][0] + p[i + 1][0]) / 2, my = (p[i][1] + p[i + 1][1]) / 2; ctx.quadraticCurveTo(p[i][0], p[i][1], mx, my); }
@@ -650,7 +680,7 @@ class Ink {
   }
   data() {
     return {
-      w: this.w, strokes: this.strokes.map(s => ({ t: s.tool, c: s.color, z: s.size, p: s.pts.flatMap(q => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10]) })),
+      w: this.w, strokes: this.strokes.map(s => ({ t: s.tool, c: s.color, z: s.size, ...(s.o != null ? { o: s.o } : {}), p: s.pts.flatMap(q => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10]) })),
       items: this.items.map(i => ({ ...i }))
     };
   }
@@ -658,17 +688,18 @@ class Ink {
     this.strokes = []; this.items = []; this.undoStack = []; this.redoStack = [];
     if (d) {
       const sx = d.w && this.w && d.w !== this.w ? this.w / d.w : 1;
-      this.strokes = (d.strokes || []).map(s => { const pts = []; for (let i = 0; i < s.p.length; i += 2) pts.push([s.p[i] * sx, s.p[i + 1] * sx]); return { tool: s.t, color: s.c, size: s.z, pts }; });
+      this.strokes = (d.strokes || []).map(s => { const pts = []; for (let i = 0; i < s.p.length; i += 2) pts.push([s.p[i] * sx, s.p[i + 1] * sx]); return { tool: s.t, color: s.c, size: s.t === 'erase' ? s.z * sx : s.z, pts, ...(s.o != null ? { o: s.o } : {}) }; });
       this.items = (d.items || []).map(i => ({ ...i }));
     }
+    this.seq = Math.max(0, ...this.strokes.map(s => s.o || 0), ...this.items.map(i => i.o || 0));
     this.render();
   }
   toPNG(bg) {
     const c = document.createElement('canvas'); c.width = this.w; c.height = this.h;
     const x = c.getContext('2d');
+    const lay = document.createElement('canvas'); lay.width = this.w; lay.height = this.h; this._paint(lay.getContext('2d'));
     if (bg) { x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height); }
-    for (const it of this.items) this._drawItem(x, it);
-    for (const s of this.strokes) this._drawStroke(x, s);
+    x.drawImage(lay, 0, 0);
     return c.toDataURL('image/png');
   }
 }
@@ -681,15 +712,20 @@ function inkToolbar(ink, { colors = PEN_COLORS, onToggle, extra = [], toggle = t
   const btn = (label, title, fn, cls = '') => h('button', { class: 'ib ' + cls, title, onclick: fn }, label);
   const setTool = t => { ink.tool = t; if (toggle && !ink.enabled) { ink.setEnabled(true); onToggle && onToggle(true); } refresh(); };
   const tg = toggle ? btn('✍️ 필기', '필기 켜기/끄기 (끄면 글자 클릭 가능)', () => { ink.setEnabled(!ink.enabled); onToggle && onToggle(ink.enabled); refresh(); }, 'toggle') : null;
-  const tools = [['pen', '🖊', '펜'], ['hl', '🖍', '형광펜'], ['eraser', '🧽', '지우개 (획 단위)']].map(([t, i, n]) => { const b = btn(i, n, () => setTool(t)); b.dataset.tool = t; return b; });
-  const sw = colors.map(c => { const b = h('button', { class: 'sw', title: c, style: { background: c }, onclick: () => { ink.color = c; if (ink.tool === 'eraser') ink.tool = 'pen'; setTool(ink.tool); } }); b.dataset.c = c; return b; });
+  const tools = [['pen', '🖊', '펜'], ['hl', '🖍', '형광펜'], ['eraser', '🧽', '지우개 — 문지른 곳만 지워요 (글자·그림도)'], ['strokeEraser', '✂️', '획 지우개 — 닿은 획·글자·그림을 통째로 지워요']].map(([t, i, n]) => { const b = btn(i, n, () => setTool(t)); b.dataset.tool = t; return b; });
+  const sw = colors.map(c => { const b = h('button', { class: 'sw', title: c, style: { background: c }, onclick: () => { ink.color = c; if (/eraser/i.test(ink.tool)) ink.tool = 'pen'; setTool(ink.tool); } }); b.dataset.c = c; return b; });
   const size = h('input', { type: 'range', min: 1, max: 16, value: ink.size, title: '굵기', class: 'sz', oninput: e => { ink.size = +e.target.value; } });
-  bar.append(...[tg, h('span', { class: 'sep' }), ...tools, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
+  /* 지우개 크기 5단계 */
+  const ERS = [['아주 작게', 8], ['작게', 12], ['보통', 17], ['크게', 23], ['아주 크게', 30]];
+  const esz = h('span', { class: 'er-sizes' }, ERS.map(([n, px], i) => { const b = h('button', { class: 'er-sz', title: `지우개 ${n}`, onclick: () => { ink.eraserSize = i; Store.set('local:eraserSize', i); if (!/eraser/i.test(ink.tool)) ink.tool = 'eraser'; setTool(ink.tool); } }, h('i', { style: { width: px + 'px', height: px + 'px' } })); b.dataset.i = i; return b; }));
+  bar.append(...[tg, h('span', { class: 'sep' }), ...tools, esz, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
     btn('↶', '되돌리기', () => ink.undo()), btn('↷', '다시', () => ink.redo()),
     btn('🗑', '이 화면 필기 지우기', async () => { if (await confirmBox('필기를 모두 지울까요?', '지우기', true)) ink.clear(); }), ...extra].filter(Boolean));
   function refresh() {
     if (tg) tg.classList.toggle('on', ink.enabled);
     tools.forEach(b => b.classList.toggle('on', ink.enabled && b.dataset.tool === ink.tool));
+    const er = ink.enabled && /eraser/i.test(ink.tool); esz.classList.toggle('show', er); size.style.display = er ? 'none' : '';
+    $$('.er-sz', esz).forEach(b => b.classList.toggle('on', +b.dataset.i === ink.eraserSize));
     sw.forEach(b => b.classList.toggle('on', b.dataset.c === ink.color));
   }
   refresh(); bar.refresh = refresh;

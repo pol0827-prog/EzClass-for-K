@@ -1374,3 +1374,12 @@ body.student #clock{display:none}
 .stu-row .stu-note{max-width:110px;font-size:.72rem}
 .stu-note.big{font-size:.9rem;max-width:420px}
 .stu-note-box{background:#fff4e0;color:#7a4a10;border-radius:10px;padding:8px 12px;font-size:.92rem}
+
+/* 🧽 지우개 크기 5단계 */
+.er-sizes{display:none;align-items:center;gap:3px;padding:0 4px;border-left:1px solid var(--line);margin-left:2px}
+.er-sizes.show{display:inline-flex}
+.er-sz{width:36px;height:36px;border:1px solid transparent;border-radius:9px;background:transparent;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;padding:0}
+.er-sz i{display:block;border-radius:50%;background:#f1e7d8;border:1.5px solid #8a6a5a}
+.er-sz:hover{background:rgba(0,0,0,.05)}
+.er-sz.on{border-color:var(--acc,#cf6287);background:#fdeef3}
+.er-sz.on i{background:#f7c6d6;border-color:var(--acc,#cf6287)}
