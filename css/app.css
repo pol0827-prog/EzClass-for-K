@@ -1319,3 +1319,48 @@ body.student #clock{display:none}
 .stu-card .pin-in{letter-spacing:.6em;text-align:center;font-weight:700}
 .stu-card .chips{margin:4px 0 8px}
 .stu-card .pin-in::placeholder{letter-spacing:normal;font-weight:400}
+
+/* 🏆 그랑프리 */
+.gp-btn{border:1px solid #e3c46a;background:#fffaf0;border-radius:99px;padding:4px 12px;cursor:pointer;font-weight:700;font-size:.85rem;color:#8a6514}
+.gp-btn:hover{background:#fff1c7}
+.gp-btn.on{background:linear-gradient(135deg,#f9e08b,#e2b33f);border-color:#c99a2e;color:#4a3208}
+.badge-gp{background:linear-gradient(135deg,#f9e08b,#e2b33f);color:#4a3208;border-radius:99px;padding:1px 10px;font-size:.78rem;font-weight:800;margin-left:4px;white-space:nowrap;box-shadow:0 1px 4px rgba(201,154,46,.4)}
+.badge-gp.big{font-size:1.6rem;padding:4px 18px}
+.wall-card.gp,.share-card.gp{outline:3px solid #d4a72c;outline-offset:-1px;box-shadow:0 0 0 6px rgba(242,201,76,.25),0 10px 26px rgba(201,154,46,.35);background:linear-gradient(160deg,#fffbe9,#fff3c4)!important}
+.spot-card.gp{box-shadow:0 0 0 6px #e2b33f,0 20px 50px rgba(0,0,0,.35)}
+.gp-stage{background:radial-gradient(circle at 50% 35%,#3b2a12,#120c05 70%);align-items:center;justify-content:center;gap:18px;overflow:hidden}
+.gp-title{font-size:clamp(2rem,4vw,3.4rem);font-weight:900;color:#ffe08a;text-shadow:0 0 24px rgba(255,200,80,.6);animation:gpPop .7s cubic-bezier(.2,1.6,.4,1) both}
+.gp-wrap{position:relative;line-height:0}
+.gp-plaque{width:min(92vw,104vh);height:auto;border-radius:18px;animation:gpIn 1s cubic-bezier(.2,1.2,.3,1) .15s both;filter:drop-shadow(0 20px 40px rgba(0,0,0,.6))}
+.gp-wrap::after{content:"";position:absolute;inset:0;border-radius:18px;pointer-events:none;background:linear-gradient(115deg,transparent 30%,rgba(255,255,255,.45) 45%,transparent 60%);background-size:250% 100%;animation:gpShine 2.6s ease 1.1s 2}
+.gp-bar{display:flex;gap:10px;flex-wrap:wrap;justify-content:center;position:relative;z-index:2}
+.gp-confetti{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:1}
+.gp-confetti i{position:absolute;top:-30px;border-radius:2px;animation-name:gpFall;animation-timing-function:linear;animation-iteration-count:2;opacity:.9}
+@keyframes gpFall{to{top:105%;transform:translateX(40px) rotate(720deg)}}
+@keyframes gpIn{from{opacity:0;transform:scale(.4) rotate(-6deg)}to{opacity:1;transform:none}}
+@keyframes gpPop{from{opacity:0;transform:scale(.3)}to{opacity:1;transform:none}}
+@keyframes gpShine{from{background-position:150% 0}to{background-position:-100% 0}}
+.gp-phone{position:fixed;inset:0;z-index:900;background:rgba(18,12,5,.82);display:flex;align-items:center;justify-content:center;padding:20px;overflow:hidden}
+.gp-phone-card{position:relative;z-index:2;background:linear-gradient(160deg,#fff8dc,#f6d77c);border:3px solid #c99a2e;border-radius:22px;padding:24px 20px;text-align:center;max-width:360px;width:100%;display:flex;flex-direction:column;gap:10px;color:#4a3208;animation:gpIn .8s cubic-bezier(.2,1.3,.3,1) both}
+.gp-phone-card h2{margin:0;font-size:1.8rem;font-weight:900}
+.gp-cup{font-size:4.5rem;line-height:1;animation:gpPop .8s cubic-bezier(.2,1.8,.4,1) .2s both}
+.gp-phone-card .btn{justify-content:center;text-align:center}
+
+/* 🔒 교사 전용 입구 */
+.gate{min-height:100vh;width:100%;display:flex;align-items:center;justify-content:center;padding:24px;background:linear-gradient(160deg,#f6f1e7,#e9f1ee)}
+.gate-card{background:#fff;border-radius:22px;box-shadow:0 18px 50px rgba(0,0,0,.12);padding:36px 32px;max-width:420px;width:100%;display:flex;flex-direction:column;align-items:center;gap:14px;text-align:center}
+.gate-card h1{margin:0;font-size:1.6rem}
+.gate-logo{width:76px;height:76px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:var(--acc,#cf6287);color:#fff;font-weight:900;font-size:1.3rem;box-shadow:0 6px 16px rgba(0,0,0,.15);line-height:1.1;padding:6px;word-break:keep-all}
+.gate-card .btn{justify-content:center}
+.gate-lock{margin:0;font-weight:700;color:var(--muted)}
+.gate-msg{min-height:1.2em;font-size:.9rem;color:#b4233c}
+
+/* 📱 지금 학생 화면 */
+.live-now{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:8px 12px;border-radius:12px;font-size:.92rem;margin-bottom:10px;border:1px solid var(--line);background:#f7f7f4}
+.live-now .ln-dot{width:10px;height:10px;border-radius:50%;background:#9ca3af;flex:none}
+.live-now.ok{background:#ecfdf3;border-color:#a7e3bf}.live-now.ok .ln-dot{background:#22c55e;box-shadow:0 0 0 4px rgba(34,197,94,.2)}
+.live-now.diff{background:#fff7e6;border-color:#f5c26b}.live-now.diff .ln-dot{background:#f59e0b;animation:lnBlink 1.2s infinite}
+.live-now .ln-ok{color:#15803d;font-weight:700}
+.live-now .btn{margin-left:auto}
+.qr-present .live-now{font-size:1.1rem;max-width:760px;margin:10px auto;color:var(--ink)}
+@keyframes lnBlink{50%{opacity:.3}}

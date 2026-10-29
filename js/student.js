@@ -24,6 +24,7 @@ function startStudent(room, pv = null) {
     main.append(h('div', { class: 'warnbox' }, '서버가 연결되지 않은 미리보기 모드입니다. 같은 컴퓨터의 교사 화면과만 연동됩니다.'));
   }
   let room$ = {}, sentFor = {}, view = '';
+  const actId = pv ? null : new URLSearchParams(location.search).get('a');   // 활동 전용 QR이면 그 활동만
   const meOK = () => !!(me.k && me.num && me.name);
   const saveMe = () => { if (!pv) saveAuth(room, me); };
   /* 다른 학급(반)을 고른 경우 그 학급 화면으로 옮기기 */
@@ -62,7 +63,7 @@ function startStudent(room, pv = null) {
         const a = { room: pick, cls: (sib.find(x => x.room === pick) || {}).name || '', num: d.num, name: d.name, k };
         saveAuth(pick, a);
         if (pick !== room) return goRoom(pick);
-        me = a; render();
+        me = a; render(); gpCheck();
       } catch (e) { console.error(e); toast('확인하지 못했어요. 인터넷 연결을 확인하세요 (' + (e.code || e.message) + ')', 'err', 5000); btn.disabled = false; btn.textContent = '들어가기'; }
     };
     btn.onclick = go; pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
@@ -77,11 +78,14 @@ function startStudent(room, pv = null) {
       sentFor[room$.act.id] = true; toast('제출했어요! 👍', 'ok'); render();
     } catch (e) {
       console.error(e);
-      if (/permission/.test(e.code || '')) { saveAuth(room, null); me = {}; loginView('비밀번호가 바뀌었거나 명단이 바뀌었어요. 다시 들어와 주세요. (쓴 내용은 다시 입력해야 해요)'); return; }
+      if (/permission/.test(e.code || '')) {
+        let keyOK = false; try { keyOK = !!(await Live.getKey(room, me.k)); } catch { }
+        if (keyOK) { toast('제출하지 못했어요 — 선생님이 응답을 마감했을 수 있어요', 'err', 6000); btn.disabled = false; btn.textContent = old; return; }
+        saveAuth(room, null); me = {}; loginView('비밀번호가 바뀌었거나 명단이 바뀌었어요. 다시 들어와 주세요. (쓴 내용은 다시 입력해야 해요)'); return; }
       toast('제출 실패: 잠시 후 다시 시도하세요 (' + (e.code || e.message) + ')', 'err', 5000); btn.disabled = false; btn.textContent = old;
     }
   };
-  const done = (msg) => h('div', { class: 'stu-done' }, h('div', { class: 'big' }, '✅'), h('h2', null, msg || '제출 완료!'), h('p', { class: 'muted' }, '다시 제출하면 최신 응답으로 바뀝니다. 선생님이 다음 활동을 열면 화면이 자동으로 바뀌어요.'),
+  const done = (msg) => h('div', { class: 'stu-done' }, h('div', { class: 'big' }, '✅'), h('h2', null, msg || '제출 완료!'), h('p', { class: 'muted' }, actId ? '다시 제출하면 최신 응답으로 바뀝니다. 다른 활동은 선생님이 보여 주는 그 활동의 QR로 들어오세요.' : '다시 제출하면 최신 응답으로 바뀝니다. 선생님이 다음 활동을 열면 화면이 자동으로 바뀌어요.'),
     h('button', { class: 'btn', onclick: () => { sentFor[room$.act.id] = false; render(); } }, '다시 제출하기'));
   function render() {
     $('.subj', head).textContent = room$.subject || '수업'; if (!pv) document.title = room$.subject || '수업';
@@ -90,6 +94,8 @@ function startStudent(room, pv = null) {
     view = 'main';
     $('.cls', head).textContent = ` · ${room$.classLabel || me.cls || ''} · ${me.num}번 ${me.name}`;
     const k = room$.kind, a = room$.act || {};
+    if (actId && room$.open === false) { view = 'closed'; main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big' }, '⛔'), h('h2', null, '응답이 마감됐어요'), h('p', { class: 'muted' }, a.q || a.title || ''), h('p', { class: 'muted small' }, '선생님이 다시 열면 이 화면이 자동으로 바뀌어요.'))); return; }
+    if (actId && !k) { view = 'wait'; main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '⏳'), h('h2', null, '아직 준비되지 않은 QR이에요'), h('p', { class: 'muted' }, '잠시 기다리거나 선생님께 알려 주세요. 준비되면 자동으로 바뀌어요.'))); return; }
     if (!k || k === 'none' || !a.id) { main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '⏳'), h('h2', null, '선생님이 활동을 열 때까지 기다려 주세요'), h('p', { class: 'muted' }, '이 화면을 켜 두면 자동으로 바뀝니다.'))); return; }
     if (sentFor[a.id]) { main.replaceChildren(done()); return; }
     if (k === 'open') main.replaceChildren(openForm(a));
@@ -152,8 +158,27 @@ function startStudent(room, pv = null) {
       h('label', null, '오늘 수업 나의 참여도'), stars, btn);
   }
   if (pv) { room$ = { kind: pv.kind, act: pv.act, subject: Brand.get().subject, classLabel: S.cls()?.name || '', groups: pv.kind === 'share' ? Groups.map?.() : null }; render(); return; }
-  Live.watchRoom(room, d => {
-    const changed = (d.act && d.act.id) !== (room$.act && room$.act.id) || d.kind !== room$.kind;
+  /* 🏆 그랑프리 받았을 때 휴대폰 축하 화면 */
+  const gpCheck = () => {
+    const g = room$.gp; if (!g || !meOK() || !(g.nums || []).includes(String(me.num))) return;
+    const key = `${room}:${g.act}:${me.num}`;
+    let seen = []; try { seen = JSON.parse(localStorage.getItem('stu:gpseen')) || []; } catch { }
+    if (seen.includes(key)) return;
+    localStorage.setItem('stu:gpseen', JSON.stringify([...seen, key].slice(-50)));
+    const ov = h('div', { class: 'gp-phone' });
+    const close = () => ov.remove();
+    ov.append(h('div', { class: 'gp-phone-card' }, h('div', { class: 'gp-cup' }, '🏆'), h('h2', null, '그랑프리 수상!'),
+      h('p', null, h('b', null, `${me.num}번 ${me.name}`), ' 축하해요!'), g.q ? h('p', { class: 'muted small' }, `「${g.q}」`) : null,
+      h('p', { class: 'small' }, '선생님이 내 응답을 오늘의 그랑프리로 뽑았어요 ✨'),
+      h('button', { class: 'btn lg full', onclick: async e => { const b = e.currentTarget; b.disabled = true; b.textContent = '만드는 중…';
+        const cv = await GP.drawPlaque({ cls: g.classLabel || me.cls || '', who: `${me.num}번 ${me.name}`, sub: '', q: g.q || '', text: '', subject: g.subject || room$.subject || '', teacher: g.teacher || '', date: todayStr() });
+        cv.toBlob(bl => { const a = h('a', { href: URL.createObjectURL(bl), download: `그랑프리_${me.name}_${todayStr()}.png` }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); b.disabled = false; b.textContent = '⬇️ 상패 다시 저장'; }); } }, '⬇️ 내 상패 저장'),
+      h('button', { class: 'btn primary lg full', onclick: close }, '확인')));
+    document.body.append(ov); GP.confetti(ov, 70); try { Sfx.fanfare(); } catch { }
+  };
+  (actId ? cb => Live.watchAct(room, actId, cb) : cb => Live.watchRoom(room, cb))(d => {
+    setTimeout(gpCheck, 300);
+    const changed = (d.act && d.act.id) !== (room$.act && room$.act.id) || d.kind !== room$.kind || d.open !== room$.open;
     const hadSib = !!((room$.siblings && room$.siblings.length) || room$.classLabel);
     room$ = d;
     if (room$.error) return render();

@@ -236,7 +236,7 @@ const FB = {
         this.auth = firebase.auth();
         this.auth.onAuthStateChanged(async u => {
           this.user = u; emit('auth', u); if (u) this.warnIfNotTeacher();
-          if (u) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패 — ' + fbWhy(e), 'err', 7000); } }
+          if (u && this.isTeacherEmail(u.email)) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패 — ' + fbWhy(e), 'err', 7000); } }
         });
       }
       return true;
@@ -276,7 +276,8 @@ const FB = {
   },
   signOut() { this.auth && this.auth.signOut(); },
   /* 로그인한 계정이 선생님 목록(config.js TEACHER_EMAILS)에 있는지 */
-  isTeacher() { const L = window.TEACHER_EMAILS; return !!this.user && (!L || !L.length || L.map(x => x.toLowerCase()).includes((this.user.email || '').toLowerCase())); },
+  isTeacherEmail(email) { const L = window.TEACHER_EMAILS; return !!email && (!L || !L.length || L.map(x => x.toLowerCase()).includes(String(email).toLowerCase())); },
+  isTeacher() { return !!this.user && this.isTeacherEmail(this.user.email); },
   warnIfNotTeacher() { if (this.user && !this.isTeacher()) toast(`지금 계정(${this.user.email})은 선생님 목록에 없어요. ${window.LOGIN_EMAIL || '등록된 계정'}으로 다시 로그인해 주세요.`, 'warn', 8000); },
   /* 목록에 있는 계정으로 로그인된 상태를 보장 (아니면 로그인 창을 띄움) */
   async ensureTeacher() {
@@ -352,6 +353,31 @@ const Live = {
   async delResp(room, id) {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).collection('responses').doc(id).delete();
     this._lsSet('resp:' + room, this._lsGet('resp:' + room, []).filter(r => r.id !== id)); emit('resp', room);
+  },
+  /* 활동별 문서: rooms/{room}/acts/{actId} — 활동마다 따로 QR */
+  _actRef(room, id) { return FB.db.collection('rooms').doc(room).collection('acts').doc(id); },
+  async setAct(room, id, data) {
+    data.updated = Date.now();
+    if (this.cloud()) return this._actRef(room, id).set(data);
+    this._lsSet(`act:${room}:${id}`, data); emit('room', room);
+  },
+  async patchAct(room, id, patch) {
+    if (this.cloud()) return this._actRef(room, id).set(patch, { merge: true });
+    const k = `act:${room}:${id}`; this._lsSet(k, { ...this._lsGet(k, {}), ...patch }); emit('room', room);
+  },
+  watchAct(room, id, cb) {
+    if (this.cloud()) return this._actRef(room, id).onSnapshot(d => cb(d.exists ? d.data() : {}), e => { console.error(e); cb({ error: e.code }); });
+    const k = `act:${room}:${id}`, f = () => cb(this._lsGet(k, {}));
+    f();
+    const l = e => { if (e.key === k) f(); };
+    window.addEventListener('storage', l);
+    const off = on('room', r => { if (r === room) f(); });
+    return () => { window.removeEventListener('storage', l); off(); };
+  },
+  /* 방 문서 일부만 고치기 (그랑프리 알림 등) */
+  async patchRoom(room, patch) {
+    if (this.cloud()) return FB.db.collection('rooms').doc(room).set(patch, { merge: true });
+    this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...patch }); emit('room', room);
   },
   /* 학생 확인 열쇠: rooms/{room}/keys/{해시} — 학생은 정확한 해시로 1건만 조회 가능(목록 보기 불가) */
   async getKey(room, k) {

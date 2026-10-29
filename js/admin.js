@@ -777,22 +777,28 @@ service cloud.firestore {
     match /rooms/{room} {
       allow read: if true;                 // 학생 화면이 현재 활동을 읽음
       allow write: if isTeacher();
+      match /acts/{a} {                    // 활동마다 따로 QR — 학생은 읽기만
+        allow read: if true;
+        allow write: if isTeacher();
+      }
       match /keys/{k} {                    // 학생 확인용(반·번호·이름·비밀번호를 섞은 값) — 목록 보기 불가
         allow get: if true;
         allow list, write: if isTeacher();
       }
       match /responses/{id} {
-        allow create: if request.resource.size() < 900000      // 학생은 제출만, 명단·비밀번호가 맞을 때만
+        allow create: if isTeacher() || (request.resource.size() < 900000      // 학생은 제출만, 명단·비밀번호가 맞을 때만, 마감 전에만
                       && request.resource.data.act is string
+                      && (!exists(/databases/$(database)/documents/rooms/$(room)/acts/$(request.resource.data.act))
+                          || get(/databases/$(database)/documents/rooms/$(room)/acts/$(request.resource.data.act)).data.open != false)
                       && request.resource.data.k is string
                       && exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))
                       && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.num == request.resource.data.num
-                      && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.name == request.resource.data.name;
+                      && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.name == request.resource.data.name);
         allow read, update, delete: if isTeacher();             // 응답 열람은 교사만
       }
     }
-    match /users/{uid}/{doc=**} {          // 선생님 개인 자료(지문·칠판·출결 등) 동기화
-      allow read, write: if request.auth != null && request.auth.uid == uid;
+    match /users/{uid}/{doc=**} {          // 선생님 개인 자료(지문·칠판·출결 등) 동기화 — 등록 교사 본인만
+      allow read, write: if isTeacher() && request.auth.uid == uid;
     }
   }
 }`;
@@ -912,15 +918,15 @@ async function exportExcelNow() {
   add('학생별 종합', studs.map(s => {
     const n = String(s.num), cl = close.filter(r => String(r.num) === n), a = attendanceStats(cls.id, n), r = riskOf(g, cls.id, n);
     const comps = {}; cl.forEach(x => (x.comps || []).forEach(c => comps[c] = (comps[c] || 0) + 1));
-    return { 번호: +n || n, 이름: s.name, 학적: s.status || '재적', 배움열기응답수: open.filter(x => String(x.num) === n).length, 배움마무리응답수: cl.length, '👍 교사 추천': [...open, ...cl].filter(x => String(x.num) === n && x.star).length || '', '✨ AI 추천 이유': [...open, ...cl].filter(x => String(x.num) === n && x.ai).map(x => `[${x.date}] ${x.aiWhy || ''}`).join('\n'),
+    return { 번호: +n || n, 이름: s.name, 학적: s.status || '재적', 배움열기응답수: open.filter(x => String(x.num) === n).length, 배움마무리응답수: cl.length, '🏆 그랑프리': [...open, ...cl, ...share].filter(x => String(x.num) === n && x.gp).length || '', '👍 교사 추천': [...open, ...cl].filter(x => String(x.num) === n && x.star).length || '', '✨ AI 추천 이유': [...open, ...cl].filter(x => String(x.num) === n && x.ai).map(x => `[${x.date}] ${x.aiWhy || ''}`).join('\n'),
       '배움 정리(날짜순)': cl.map(x => `[${x.date}] ${x.summary}`).join('\n'), '역량 어필(날짜순)': cl.map(x => `[${x.date}] ${x.appeal}`).join('\n'),
       '선택 역량(횟수)': Object.entries(comps).sort((a, b) => b[1] - a[1]).map(([c, k]) => `${c}(${k})`).join(', '),
       '관찰 메모': ms.filter(m => m.num === n).map(m => `[${m.date}${m.tags.length ? ' ' + m.tags.join('/') : ''}] ${m.text}`).join('\n'),
       결석: a.absent, 결과: a.part, '지각·조퇴': a.late, 출석률: a.rate != null ? Math.round(a.rate) + '%' : '', 현재성취율: r.c.rate != null ? r.c.rate.toFixed(1) + '%' : '', 미이수예측: r.level ? '미이수 우려 (' + r.reasons.join(', ') + ')' : '' };
   }), [6, 10, 6, 8, 8, 60, 60, 30, 60, 6, 6, 8, 8, 10, 30]);
-  add('배움마무리', close.map(r => ({ 날짜: r.date, 번호: +r.num || r.num, 이름: r.name, 정리: r.summary, 역량어필: r.appeal, 역량: (r.comps || []).join(', '), 자기평가: r.self || '', 교사추천: r.star ? '👍' : '', AI추천: r.ai ? (r.aiWhy || '✨') : '', 제출시각: new Date(r.ts).toLocaleString('ko-KR') })), [11, 6, 10, 60, 60, 30, 8, 20]);
-  add('배움열기', open.map(r => ({ 날짜: r.date, 질문: r.q, 번호: +r.num || r.num, 이름: r.name, 응답: ansText(r.answer), 교사추천: r.star ? '👍' : '', AI추천: r.ai ? (r.aiWhy || '✨') : '', 제출시각: new Date(r.ts).toLocaleString('ko-KR') })), [11, 40, 6, 10, 50, 20]);
-  add('배움공유', share.map(r => ({ 날짜: r.date, 활동: r.q, 모둠: r.group, 발표자: r.presenter || r.name, 발표자번호: r.num, 모둠원: r.members || '', 제목: r.title, 내용: r.content, 영상: r.video || '', 이미지: r.image ? '있음' : '' })), [11, 30, 6, 10, 8, 30, 30, 60, 30, 8]);
+  add('배움마무리', close.map(r => ({ 날짜: r.date, 번호: +r.num || r.num, 이름: r.name, 정리: r.summary, 역량어필: r.appeal, 역량: (r.comps || []).join(', '), 자기평가: r.self || '', 그랑프리: r.gp ? '🏆' : '', 교사추천: r.star ? '👍' : '', AI추천: r.ai ? (r.aiWhy || '✨') : '', 제출시각: new Date(r.ts).toLocaleString('ko-KR') })), [11, 6, 10, 60, 60, 30, 8, 20]);
+  add('배움열기', open.map(r => ({ 날짜: r.date, 질문: r.q, 번호: +r.num || r.num, 이름: r.name, 응답: ansText(r.answer), 그랑프리: r.gp ? '🏆' : '', 교사추천: r.star ? '👍' : '', AI추천: r.ai ? (r.aiWhy || '✨') : '', 제출시각: new Date(r.ts).toLocaleString('ko-KR') })), [11, 40, 6, 10, 50, 20]);
+  add('배움공유', share.map(r => ({ 날짜: r.date, 활동: r.q, 모둠: r.group, 발표자: r.presenter || r.name, 발표자번호: r.num, 모둠원: r.members || '', 제목: r.title, 내용: r.content, 영상: r.video || '', 이미지: r.image ? '있음' : '', 그랑프리: r.gp ? '🏆' : '' })), [11, 30, 6, 10, 8, 30, 30, 60, 30, 8]);
   add('관찰메모', ms.map(m => ({ 날짜: m.date, 번호: +m.num || m.num, 이름: nm(m.num), 태그: m.tags.join(', '), 내용: m.text })), [11, 6, 10, 20, 80]);
   const att = Store.get('att:' + cls.id, {}); const dates = Object.keys(att).sort((a, b) => { const [da, pa] = a.split('#'), [db, pb] = b.split('#'); return da.localeCompare(db) || (+pa || 0) - (+pb || 0); });
   add('출결', studs.map(s => { const o = { 번호: +s.num || s.num, 이름: s.name }; dates.forEach(d => { const [dd, p] = d.split('#'); o[p ? `${dd} ${p}교시` : dd] = att[d]?.[s.num] || ''; }); return o; }));

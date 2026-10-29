@@ -27,7 +27,7 @@ async function route() {
   }
   if (!LOCKED.includes(want)) Lock.open = false;
   _lastView = want;
-  View.cleanup.forEach(f => { try { f(); } catch { } }); View.cleanup = [];
+  View.cleanup.forEach(f => { try { f(); } catch { } }); View.cleanup = []; PageAct = null;
   LearnState.player && LearnState.player.stop();
   $$('.present').forEach(p => p.remove());
   const k = ROUTES[location.hash.slice(1)] ? location.hash.slice(1) : 'home';
@@ -69,6 +69,36 @@ function refreshFoot() {
     h('button', { class: 'btn sm ghost', onclick: exportExcel }, h('span', { class: 'nl' }, '⬇️ 학생부 엑셀')));
 }
 
+/* =========================================================
+   🔒 교사 전용 입구 — config.js의 TEACHER_EMAILS 계정만 들어옴
+   (학생은 QR 응답 화면 ?r=… 으로만 들어옴)
+   ========================================================= */
+const Gate = {
+  wait() {
+    return new Promise(res => {
+      const B = Brand.get();
+      const msg = h('div', { class: 'gate-msg' });
+      const btn = h('button', { class: 'btn primary lg full', onclick: async () => { btn.disabled = true; msg.textContent = ''; await FB.signIn(); btn.disabled = false; } }, '🔑 교사 로그인 (구글)');
+      const show = (text = '', retry = false) => {
+        msg.textContent = text;
+        $('#app').replaceChildren(h('div', { class: 'gate' }, h('div', { class: 'gate-card' },
+          h('div', { class: 'gate-logo' }, B.logo),
+          h('h1', null, B.title), h('p', { class: 'gate-lock' }, '🔒 등록된 선생님만 들어올 수 있어요'),
+          retry ? h('button', { class: 'btn primary lg full', onclick: () => location.reload() }, '↻ 다시 시도') : btn, msg,
+          h('p', { class: 'small muted' }, '학생은 이 화면이 아니라, 수업 시간에 선생님이 보여 주는 QR로 응답 화면에 들어오세요.'))));
+      };
+      if (!FB.ready || !FB.auth) { show('서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.', true); return; }
+      show('로그인 상태를 확인하는 중…');
+      let denied = '';
+      const off = FB.auth.onAuthStateChanged(u => {
+        if (u && FB.isTeacherEmail(u.email)) { off(); res(true); return; }
+        if (u) { denied = `${u.email} 계정은 등록된 교사 계정이 아니에요. 등록된 계정으로 로그인해 주세요.`; show(denied); FB.auth.signOut(); return; }
+        show(denied); denied = '';
+      });
+    });
+  }
+};
+
 (async function boot() {
   await Store.init();
   Brand.apply();
@@ -77,6 +107,7 @@ function refreshFoot() {
   FB.init();
   const room = new URLSearchParams(location.search).get('r');
   if (room) { startStudent(room); return; }
+  await Gate.wait();          // 🔒 등록된 교사만 통과
   if (Store.get('local:collapsed')) document.body.classList.add('collapsed');
   buildShell();
   const ui = S.ui();
@@ -86,7 +117,7 @@ function refreshFoot() {
   Bell.mount();
   Intro.play();
   window.addEventListener('hashchange', route);
-  on('auth', u => { refreshFoot(); if (location.hash === '#settings') route(); if (u && FB.isTeacher()) setTimeout(() => Keys.syncAll().catch(e => console.warn('명단 올리기 실패', e)), 1500); });
+  on('auth', u => { if (!u || !FB.isTeacher()) { location.replace(location.pathname + location.hash); return; } refreshFoot(); if (location.hash === '#settings') route(); if (u && FB.isTeacher()) setTimeout(() => Keys.syncAll().catch(e => console.warn('명단 올리기 실패', e)), 1500); });
   on('pulled', () => { Brand.apply(); buildShell(); route(); });
   on('classes', refreshTop); on('lessons', refreshTop); on('ui', refreshTop);
   on('rerender', () => { refreshTop(); route(); });
