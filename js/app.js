@@ -2,6 +2,7 @@
 /* =========================================================
    앱 뼈대 · 라우터 · 시작
    ========================================================= */
+const APP_VER = '2026.10.29-c';
 const View = { cleanup: [] };
 const ROUTES = {
   home: [renderHome, '🏠', '홈'],
@@ -57,7 +58,7 @@ function refreshTop() {
   les.value = ui.lessonId || '';
   top.replaceChildren(
     h('button', { class: 'ib', title: '메뉴 접기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, '☰'),
-    cls, les, h('span', { class: 'grow' }), h('span', { id: 'clockSlot' }), h('span', { class: 'grow' }),
+    cls, les, h('span', { id: 'clockSlot' }), h('span', { class: 'grow' }),
     h('div', { class: 'tools' }, [['⏱', '타이머', () => Timer.open()], ['🎲', '뽑기', () => Picker.open()], ['👥', '모둠', () => Groups.open()], ['📱', 'QR', () => showQRBig()], ['🎬', '영상', () => Video.manager('global', '공통')], ['⛶', '전체', () => toggleFull()]]
       .map(([i, l, f]) => h('button', { class: 'tool', title: l, onclick: f }, h('span', null, i), h('small', null, l)))));
 }
@@ -66,7 +67,8 @@ function refreshFoot() {
   f.replaceChildren(
     h('div', { class: 'mode ' + (FB.ready ? 'cloud' : 'local') }, FB.ready ? (FB.user ? '☁️ 동기화 중' : '☁️ 서버 연결됨') : '💻 로컬 모드'),
     FB.ready ? (FB.user ? h('button', { class: 'btn sm ghost', title: FB.user.email, onclick: () => FB.signOut() }, h('span', { class: 'nl' }, FB.user.email.split('@')[0] + ' · 로그아웃')) : h('button', { class: 'btn sm primary', onclick: () => FB.signIn() }, h('span', { class: 'nl' }, '교사 로그인'))) : FB.fileConfig() ? null : h('a', { class: 'btn sm ghost', href: '#settings', onclick: () => Store.set('local:setTab', 'server') }, h('span', { class: 'nl' }, '서버 연결하기')),
-    h('button', { class: 'btn sm ghost', onclick: exportExcel }, h('span', { class: 'nl' }, '⬇️ 학생부 엑셀')));
+    h('button', { class: 'btn sm ghost', onclick: exportExcel }, h('span', { class: 'nl' }, '⬇️ 학생부 엑셀')),
+    h('small', { class: 'nl muted app-ver' }, '버전 ' + APP_VER));
 }
 
 /* =========================================================

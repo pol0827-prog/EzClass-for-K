@@ -5,10 +5,14 @@
 
 /* ---------- 문서 글자 추출 ---------- */
 const DocText = {
+  /* 압축 풀기 — 한글 파일은 압축 끝에 쓰레기 바이트가 붙는 일이 많아(크롬은 이때 전체를 실패 처리), 풀린 만큼은 살려서 씀 */
   async inflateRaw(u8) {
-    const ds = new DecompressionStream('deflate-raw');
-    const out = new Response(new Blob([u8]).stream().pipeThrough(ds));
-    return new Uint8Array(await out.arrayBuffer());
+    const rd = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
+    const chunks = []; let n = 0;
+    try { for (;;) { const { done, value } = await rd.read(); if (done) break; chunks.push(value); n += value.length; } }
+    catch (e) { if (!n) throw e; console.warn('HWP 압축 끝부분 무시:', e.message); }
+    const out = new Uint8Array(n); let o = 0; for (const c of chunks) { out.set(c, o); o += c.length; }
+    return out;
   },
   /* HWP 5.0 (한글 문서, OLE 구조) */
   async hwp(buf) {
@@ -44,29 +48,58 @@ const DocText = {
     }
     return text;
   },
+  /* 본문 레코드 → 글자. 표는 칸을 지켜 '| 칸 | 칸 |' 줄로 옮김 (칸 안 줄바꿈은 <br>, 합친 칸은 같은 글자로 채움) */
   hwpRecords(d) {
     const dv = new DataView(d.buffer, d.byteOffset, d.byteLength); let p = 0, out = '';
+    const tables = [];   // 열린 표들 { level, rows, cols, cells:{}, cur }
+    const paraText = (p0, size) => {
+      let s = '';
+      for (let i = 0; i + 1 < size; i += 2) {
+        const c = dv.getUint16(p0 + i, true);
+        if (c < 32) {
+          if ([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23].includes(c)) { i += 14; continue; } // 확장·인라인 컨트롤(8글자)
+          if ([4, 5, 6, 7, 8, 19, 20].includes(c)) { i += 14; continue; }
+          if (c === 9) { s += '\t'; i += 14; continue; }
+          if (c === 10) s += '\n';
+          if (c === 24) s += '-';
+          if (c === 30 || c === 31) s += ' ';      // 묶음 빈칸·고정폭 빈칸
+          continue;
+        }
+        s += String.fromCharCode(c);
+      }
+      return s.replace(/\s+$/, '');
+    };
+    const cellText = c => c.parts.join('');
+    const render = tb => {
+      const cells = Object.values(tb.cells).sort((a, b) => a.row - b.row || a.col - b.col);
+      // 겉틀 표(문서 전체를 감싼 표, 한 줄·한 칸짜리, 안에 표가 든 표)는 표가 아니라 글로 풀어 씀
+      if (tb.nested || tb.rows <= 1 || tb.cols <= 1) return '\n' + cells.map(c => cellText(c).replace(/\s+$/, '')).filter(Boolean).join('\n') + '\n';
+      const R = tb.rows, C = tb.cols, g = Array.from({ length: R }, () => Array(C).fill(''));
+      for (const c of cells) {
+        const txt = cellText(c).split('\n').map(x => x.trim()).filter(Boolean).join('<br>').replace(/\|/g, '｜');
+        for (let r = c.row; r < Math.min(R, c.row + (c.rs || 1)); r++) for (let k = c.col; k < Math.min(C, c.col + (c.cs || 1)); k++) g[r][k] = txt;
+      }
+      return '\n' + g.map(row => '| ' + row.join(' | ') + ' |').join('\n') + '\n\n';
+    };
+    const close = lv => { while (tables.length && lv < tables[tables.length - 1].level) { const tb = tables.pop(), txt = render(tb), up = tables[tables.length - 1]; if (up && up.cur) { up.cur.parts.push(txt); up.nested = true; } else out += txt; } };
     while (p + 4 <= d.length) {
       const hdr = dv.getUint32(p, true); p += 4;
-      const tag = hdr & 0x3ff; let size = (hdr >>> 20) & 0xfff;
+      const tag = hdr & 0x3ff, lv = (hdr >>> 10) & 0x3ff; let size = (hdr >>> 20) & 0xfff;
       if (size === 0xfff) { size = dv.getUint32(p, true); p += 4; }
-      if (tag === 67) { // HWPTAG_PARA_TEXT
-        let s = '';
-        for (let i = 0; i + 1 < size; i += 2) {
-          const c = dv.getUint16(p + i, true);
-          if (c < 32) {
-            if ([1, 2, 3, 11, 12, 14, 15, 16, 17, 18, 21, 22, 23].includes(c)) { i += 14; continue; } // 확장·인라인 컨트롤(8글자)
-            if ([4, 5, 6, 7, 8, 19, 20].includes(c)) { i += 14; continue; }
-            if (c === 9) { s += '\t'; i += 14; continue; }
-            if (c === 10) s += '\n';
-            continue;
-          }
-          s += String.fromCharCode(c);
-        }
-        out += s.replace(/\s+$/, '') + '\n';
+      close(lv);
+      const top = tables[tables.length - 1];
+      if (tag === 77 && size >= 8) {            // HWPTAG_TABLE: 줄·칸 수
+        tables.push({ level: lv, rows: dv.getUint16(p + 4, true), cols: dv.getUint16(p + 6, true), cells: {}, cur: null });
+      } else if (tag === 72 && top && lv === top.level && size >= 16) {   // HWPTAG_LIST_HEADER: 표의 한 칸
+        const col = dv.getUint16(p + 8, true), row = dv.getUint16(p + 10, true), cs = dv.getUint16(p + 12, true), rs = dv.getUint16(p + 14, true);
+        top.cur = top.cells[row + ',' + col] = { row, col, cs, rs, parts: [] };
+      } else if (tag === 67) {                  // HWPTAG_PARA_TEXT
+        const s = paraText(p, size);
+        if (top && top.cur && lv > top.level) top.cur.parts.push(s + '\n'); else out += s + '\n';
       }
       p += size;
     }
+    close(-1);
     return out;
   },
   /* HWPX (한글 2014 이상 XML 형식) */
@@ -328,8 +361,92 @@ async function rebuildExam() {
   let g; try { if (!(await AI.available())) throw new Error('AI 없음'); g = await aiExamNotice(src.text); } catch (e) { console.warn(e); g = ruleExamNotice(src.text); if (!(await AI.available())) toast('AI 없이 글에서 자동으로 골라냈어요. 확인해 주세요', 'warn', 5000); else toast('AI 정리에 실패해 자동으로 골라냈어요. 확인해 주세요', 'warn', 6000); }
   Store.set('evalguide:written', g); Store.set('local:evalView:written', 'guide'); renderEval();
 }
+/* 글 속 '| 칸 | 칸 |' 표들을 꺼내기 (한글 파일의 표) */
+function textTables(text) {
+  const out = []; let cur = null, ctx = [];
+  for (const raw of String(text).split(/\r?\n/)) {
+    const l = raw.trim();
+    if (/^\|.*\|$/.test(l)) {
+      if (!cur) { cur = { rows: [], before: ctx.slice(-3).join(' ') }; out.push(cur); }
+      cur.rows.push(l.slice(1, -1).split('|').map(c => c.trim().replace(/<br>/g, '\n')));
+    } else { cur = null; if (l) ctx.push(l); }
+  }
+  return out;
+}
+/* 표에서 시험 시간표·우리 과목 일정·범위 찾기 */
+function examFromTables(text, t) {
+  const tbs = textTables(text); if (!tbs.length) return null;
+  const yr = (String(text).match(/(20\d{2})\s*학년도/) || [])[1] || new Date().getFullYear();
+  const dRe = /(\d{1,2})\s*(?:월|[.\/\-])\s*(\d{1,2})\s*일?\s*\.?\s*(?:\(\s*([월화수목금토일])\s*\))?/;
+  const iso = m => `${+m[1] >= 3 && +m[1] <= 12 ? yr : +yr + 1}-${String(m[1]).padStart(2, '0')}-${String(m[2]).padStart(2, '0')}`;
+  const nice = m => `${+m[1]}월 ${+m[2]}일${m[3] ? `(${m[3]})` : ''}`;
+  const parts = c => String(c || '').split(/\n|\s\/\s|\/|,/).map(x => x.trim()).filter(Boolean);
+  // 과목 이름 맞추기: 먼저 똑같은 이름(줄임말 포함), 없으면 앞이 다른 글자로 이어지지 않는 부분 일치('문학' ≠ '인문학과 윤리')
+  const nz = x => String(x || '').replace(/[\s·・.]/g, '');
+  const al = subjAliases(t.subject).map(nz).filter(Boolean);
+  const strict = c => parts(c).some(x => al.includes(nz(x))) || al.includes(nz(c));
+  const loose = c => parts(c).concat(String(c || '').replace(/\n/g, ' ')).some(x => al.some(a => a.length >= 2 && new RegExp('(?<![가-힣])' + a.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).test(nz(x))));
+  const anyStrict = tbs.some(tb => tb.rows.some(r => r.some(strict)));
+  const hit = anyStrict ? strict : loose;
+  let grade = t.grade || '', timetable = [], exam = null;
+  // ① 시험 시간표: 머리줄에 '교시'가 있고 날짜 칸이 있는 표
+  const tt = tbs.find(tb => tb.rows[0] && tb.rows[0].some(c => /교시/.test(c)) && tb.rows.slice(1).some(r => r[0] && dRe.test(r[0].replace(/\n/g, ' '))));
+  if (tt) {
+    const H = tt.rows[0], pc = H.findIndex(c => /교시/.test(c)), tc = H.findIndex(c => /시\s*간|시각/.test(c));
+    const gcols = H.map((c, i) => [(c.match(/([1-3])\s*학년/) || [])[1], i]).filter(x => x[0]);
+    const scol = H.findIndex(c => /과목/.test(c));
+    let gc = gcols.find(x => x[0] === grade);
+    if (!gc) for (const r of tt.rows.slice(1)) { const f = gcols.find(([, i]) => hit(r[i])); if (f) { gc = f; break; } }
+    if (gc) grade = gc[0];
+    const byDate = new Map();
+    for (const r of tt.rows.slice(1)) {
+      const dm = (r[0] || '').replace(/\n/g, ' ').match(dRe); if (!dm) continue;
+      const per = ((r[pc] || '').match(/\d+/) || [])[0], time = (r[tc] || '').replace(/\s/g, '');
+      const subj = gc ? r[gc[1]] : scol >= 0 ? r[scol] : gcols.map(([g, i]) => r[i] ? `${g}학년 ${r[i]}` : '').filter(Boolean).join(' · ');
+      const key = iso(dm); if (!byDate.has(key)) byDate.set(key, { date: key, dateText: nice(dm), periods: [] });
+      const sj = String(subj || '').replace(/\s*\n\s*/g, ' ').replace(/\s*\/\s*/g, ' / ').trim();
+      if (sj) byDate.get(key).periods.push({ period: per ? per + '교시' : '', time: time.replace('-', '~'), subject: sj });
+      if (!exam && sj && hit(subj)) exam = { date: key, dateText: nice(dm), period: per ? per + '교시' : '', time: time.replace('-', '~') };
+    }
+    timetable = [...byDate.values()].filter(d => d.periods.length);
+  }
+  // ② 시험 범위 표: 머리줄에 '과목'과 '범위'
+  let rangeRow = null, rt = null;
+  const rts = tbs.filter(tb => tb.rows[0] && tb.rows[0].some(c => /과목/.test(c)) && tb.rows[0].some(c => /범위/.test(c)));
+  const cand = [];
+  for (const tb of rts) { const sc = tb.rows[0].findIndex(c => /과목/.test(c)); for (const r of tb.rows.slice(1)) if (hit(r[sc])) cand.push([tb, r, ((tb.before.match(/([1-3])\s*학년(?!도)/g) || []).pop() || '').replace(/\D/g, '')]); }
+  const pick = cand.find(c => grade && c[2] === grade) || cand[0];
+  if (pick) { [rt, rangeRow] = pick; if (!grade && pick[2]) grade = pick[2]; }
+  let range = [], format = [];
+  if (rangeRow) {
+    const H = rt.rows[0], col = re => H.findIndex(c => re.test(c));
+    let label = '';
+    for (const l of String(rangeRow[col(/범위/)] || '').split('\n').map(x => x.trim()).filter(Boolean)) {
+      if (/[:：]$/.test(l)) { label = l; continue; }
+      range.push(label ? `${label} ${l}` : l);
+    }
+    if (!range.length && label) range.push(label);
+    const kv = c => { const m = {}; String(c || '').split('\n').forEach(x => { const mm = x.match(/(.+?)\s*[:：]\s*(\d+)/); if (mm) m[mm[1].trim()] = +mm[2]; }); return m; };
+    const pts = kv(rangeRow[col(/총점|배점/)]), cnt = kv(rangeRow[col(/문항/)]);
+    for (const k of new Set([...Object.keys(pts), ...Object.keys(cnt)])) if ((pts[k] || 0) > 0 || (cnt[k] || 0) > 0) format.push({ type: k, count: cnt[k] != null ? cnt[k] + '문항' : '', points: pts[k] != null ? pts[k] + '점' : '' });
+  }
+  if (!timetable.length && !rangeRow) return null;
+  return { grade, timetable, exam, range, format };
+}
 /* AI 없이 · 실패했을 때: 글에서 날짜·교시·범위를 규칙으로 골라내기 */
 function ruleExamNotice(text) {
+  const tb = examFromTables(text, examTarget());
+  if (tb) {
+    const t = examTarget(), lines = String(text).split(/\r?\n/).map(l => l.replace(/[ \t\u00a0]+/g, ' ').trim()).filter(l => l && !l.startsWith('|'));
+    const title = lines.find(l => /정기|지필|고사|시험/.test(l) && /안내|계획/.test(l) && l.length < 60) || lines.find(l => /정기|지필|고사|시험/.test(l) && l.length < 60) || '정기시험 안내';
+    const per = String(text).match(/(\d{1,2}월\s*\d{1,2}일\s*(?:\([월화수목금토일]\))?)\s*[~∼～-]\s*(\d{1,2}월\s*\d{1,2}일\s*(?:\([월화수목금토일]\))?)(?:까지)?\s*(?:총\s*(\d+)\s*일)?/);
+    const notes = lines.filter(l => /유의|주의|반드시|금지|부정행위|결시|입실|휴대|사인펜|답안|마킹|모자/.test(l) && l.length < 120 && !/^[▫◦○•\-\s]*[가-힣\s]{0,12}(유의\s*사항|부정행위 방지|이의신청.*)$/.test(l)).map(l => l.replace(/^\s*(?:[-•·*○◦▪▫]|\d+\.)\s*/, '')).slice(0, 8);
+    const ex = { name: title, subject: t.subject, date: tb.exam?.date || '', dateText: tb.exam?.dateText || '', period: tb.exam?.period || '', time: tb.exam?.time || '', range: tb.range, format: tb.format, materials: /사인펜/.test(text) ? ['컴퓨터용 사인펜'] : [], notes: [] };
+    return { kind: 'exam', auto: true, target: t.subject, title: `${title} — ${t.subject}`, summary: per ? `시험 기간: ${per[1]} ~ ${per[2]}${per[3] ? ` (총 ${per[3]}일)` : ''}` : '', subject: t.subject, grade: tb.grade, exams: [ex], timetable: tb.timetable, notes, faq: [] };
+  }
+  return ruleExamNoticeLines(text);
+}
+function ruleExamNoticeLines(text) {
   const t = examTarget(), lines = String(text).split(/\r?\n/).map(l => l.replace(/[ \t ]+/g, ' ').trim()).filter(Boolean);
   const dRe = /(\d{1,2})\s*(?:월|[.\/])\s*(\d{1,2})\s*(?:일)?\s*\.?\s*(?:\(\s*([월화수목금토일])\s*\))?/;
   const known = SUBJECTS_2022.flatMap(x => x[1]).concat(['수학', '영어', '한국사', '통합사회', '통합과학', '과학탐구실험', '물리학', '화학', '생명과학', '지구과학', '세계사', '동아시아사', '한국지리', '세계지리', '정치', '경제', '윤리와 사상', '생활과 윤리', '사회와 문화', '대수', '미적분', '확률과 통계', '기하', '영어Ⅰ', '영어Ⅱ', '일본어', '중국어', '정보', '기술·가정']);
@@ -387,6 +504,19 @@ JSON만 출력:
 ${(text || '(이미지로 첨부)').slice(0, 30000)}`, { images, maxTokens: 8000 });
   g.kind = 'exam'; g.target = t.subject;
   g.exams = (g.exams || []).filter(x => !x.subject || subjMatch(x.subject, t.subject) || subjMatch(t.subject, x.subject));
+  // AI가 빠뜨린 일정·범위는 표에서 직접 읽은 값으로 채움
+  try {
+    const r = examFromTables(text, t);
+    if (r) {
+      if (!(g.timetable || []).length && r.timetable.length) g.timetable = r.timetable;
+      if (!g.exams.length) g.exams.push({ name: g.title || '', subject: t.subject, range: [], format: [], materials: [], notes: [] });
+      const e = g.exams[0];
+      if (!e.date && r.exam) Object.assign(e, { date: r.exam.date, dateText: r.exam.dateText, period: e.period || r.exam.period, time: e.time || r.exam.time });
+      if (!(e.range || []).length && r.range.length) e.range = r.range;
+      if (!(e.format || []).length && r.format.length) e.format = r.format;
+      if (!g.grade && r.grade) g.grade = r.grade;
+    }
+  } catch (e) { console.warn('표 읽기 보충 실패', e); }
   return g;
 }
 function dday(d) {

@@ -319,11 +319,14 @@ function renderGrades() {
 const MEMO_TAGS = ['1인 1역', '수업 태도', '수업 역량', '모둠 활동', '발표', '질문', '탐구력', '성장', '어려움', '기타'];
 const MemoState = { num: null, q: '', pick: new Set() };
 function memos(cid) { return Store.get('memos:' + cid, []); }
+/* 설정 → 명렬표의 '비고' (관찰 메모·교사용 자리표에 표시) */
+function stuNote(cls, num) { return ((cls?.students || []).find(x => String(x.num) === String(num))?.note || '').trim(); }
 function addMemoQuick(num, name, text = '') {
   const cls = S.cls(); if (!cls) return;
   const t = h('textarea', { class: 'full', rows: 4 }); t.value = text;
   const tags = new Set();
-  modal({ title: `📝 ${num} ${name} 관찰 메모`, body: h('div', { class: 'stack' }, h('div', { class: 'chips' }, MEMO_TAGS.map(tg => h('button', { class: 'chip', onclick: e => { tags.has(tg) ? tags.delete(tg) : tags.add(tg); e.currentTarget.classList.toggle('on'); } }, tg))), t),
+  const note = stuNote(cls, num);
+  modal({ title: `📝 ${num} ${name} 관찰 메모`, body: h('div', { class: 'stack' }, note ? h('div', { class: 'stu-note-box' }, '📌 비고: ', note) : null, h('div', { class: 'chips' }, MEMO_TAGS.map(tg => h('button', { class: 'chip', onclick: e => { tags.has(tg) ? tags.delete(tg) : tags.add(tg); e.currentTarget.classList.toggle('on'); } }, tg))), t),
     actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { if (!t.value.trim()) return false; const ms = memos(cls.id); ms.unshift({ id: uid(), num: String(num), date: todayStr(), tags: [...tags], text: t.value.trim(), ts: Date.now() }); Store.set('memos:' + cls.id, ms); toast('메모를 저장했습니다'); } }] });
 }
 function renderMemo() {
@@ -333,19 +336,20 @@ function renderMemo() {
   const all = memos(cls.id);
   const cnt = n => all.filter(m => m.num === String(n)).length;
   const left = h('div', { class: 'memo-side' }, h('button', { class: 'stu-row' + (!MemoState.num ? ' on' : ''), onclick: () => { MemoState.num = null; renderMemo(); } }, '전체 보기', h('span', { class: 'cnt' }, all.length)),
-    studs.map(s => h('button', { class: 'stu-row' + (MemoState.num === String(s.num) ? ' on' : '') + (s.status && s.status !== '재적' ? ' out' : ''), onclick: () => { MemoState.num = String(s.num); renderMemo(); } }, `${s.num} ${s.name}`, s.status && s.status !== '재적' ? h('small', null, ' ' + s.status) : null, h('span', { class: 'cnt' }, cnt(s.num) || ''))));
+    studs.map(s => h('button', { class: 'stu-row' + (MemoState.num === String(s.num) ? ' on' : '') + (s.status && s.status !== '재적' ? ' out' : ''), title: s.note ? '비고: ' + s.note : '', onclick: () => { MemoState.num = String(s.num); renderMemo(); } }, `${s.num} ${s.name}`, s.note ? h('span', { class: 'stu-note' }, s.note) : null, s.status && s.status !== '재적' ? h('small', null, ' ' + s.status) : null, h('span', { class: 'cnt' }, cnt(s.num) || ''))));
   const sel = studs.find(s => String(s.num) === MemoState.num);
   const tags = new Set();
   const txt = h('textarea', { class: 'full', rows: 3, placeholder: '관찰 내용 — 구체적인 장면·행동·발언 중심으로' });
   const date = h('input', { type: 'date', value: todayStr() });
-  const who = h('select', null, studs.map(s => h('option', { value: s.num }, `${s.num} ${s.name}`))); if (sel) who.value = sel.num;
+  const who = h('select', { onchange: () => { const n = stuNote(cls, who.value); whoNote.textContent = n ? '📌 ' + n : ''; } }, studs.map(s => h('option', { value: s.num }, `${s.num} ${s.name}${s.note ? ' · ' + s.note : ''}`))); if (sel) who.value = sel.num;
+  const whoNote = h('span', { class: 'stu-note' }); { const n = stuNote(cls, who.value); whoNote.textContent = n ? '📌 ' + n : ''; if (!n) whoNote.style.display = ''; }
   const search = h('input', { placeholder: '🔍 메모 검색', value: MemoState.q, oninput: debounce(e => { MemoState.q = e.target.value; drawList(); }, 300) });
   const list = h('div', { class: 'memo-list' });
   const drawList = () => {
     const ms = memos(cls.id).filter(m => (!MemoState.num || m.num === MemoState.num) && (!MemoState.q || (m.text + m.tags.join()).includes(MemoState.q)));
     list.replaceChildren(...(ms.length ? ms.map(m => { const s = studs.find(x => String(x.num) === m.num); return h('div', { class: 'memo-item' + (m.merged ? ' merged' : '') + (MemoState.pick.has(m.id) ? ' picked' : '') },
       h('div', { class: 'row gap' }, h('input', { type: 'checkbox', class: 'memo-pick', title: '합치기에 고르기', checked: MemoState.pick.has(m.id), onchange: e => { e.target.checked ? MemoState.pick.add(m.id) : MemoState.pick.delete(m.id); e.target.closest('.memo-item').classList.toggle('picked', e.target.checked); updPick(); } }),
-        m.merged ? h('span', { class: 'tag merged' }, '🧩 합친 메모') : null, h('b', null, `${m.num} ${s?.name || ''}`), h('small', { class: 'muted' }, m.date), m.tags.map(t => h('span', { class: 'tag' }, t)), h('span', { class: 'grow' }),
+        m.merged ? h('span', { class: 'tag merged' }, '🧩 합친 메모') : null, h('b', null, `${m.num} ${s?.name || ''}`), s?.note ? h('span', { class: 'stu-note' }, s.note) : null, h('small', { class: 'muted' }, m.date), m.tags.map(t => h('span', { class: 'tag' }, t)), h('span', { class: 'grow' }),
         h('button', { class: 'x', onclick: async () => { const t = await promptBox('메모 수정', m.text, true); if (t != null) { const arr = memos(cls.id); arr.find(x => x.id === m.id).text = t; Store.set('memos:' + cls.id, arr); drawList(); } } }, '✎'),
         h('button', { class: 'x', onclick: async () => { if (await confirmBox('메모를 삭제할까요?', '삭제', true)) { Store.set('memos:' + cls.id, memos(cls.id).filter(x => x.id !== m.id)); drawList(); } } }, '✕')),
       h('div', { class: 'memo-text' }, m.text)); }) : [h('p', { class: 'muted' }, '메모가 없습니다.')]));
@@ -356,8 +360,8 @@ function renderMemo() {
   const dlBtn = h('button', { class: 'btn', onclick: () => downloadMemos(cls, studs) }, '⬇️ 파일로 받기');
   const draftBtn = sel ? h('button', { class: 'btn', onclick: () => withBusy(draftBtn, '초안 작성 중…', () => sekteukDraft(cls, sel)) }, '✨ 세특 문장 초안') : null;
   root.append(h('div', { class: 'memo-layout' }, left, h('div', { class: 'memo-main' },
-    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📝 학생 관찰 메모', sel ? ` — ${sel.num} ${sel.name}` : ''), search, mergeBtn, dlBtn, draftBtn),
-    h('div', { class: 'card soft stack' }, h('div', { class: 'row gap wrap' }, who, date, h('div', { class: 'chips' }, MEMO_TAGS.map(tg => h('button', { class: 'chip', onclick: e => { tags.has(tg) ? tags.delete(tg) : tags.add(tg); e.currentTarget.classList.toggle('on'); } }, tg)))), txt,
+    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📝 학생 관찰 메모', sel ? ` — ${sel.num} ${sel.name}` : '', sel?.note ? h('span', { class: 'stu-note big' }, '📌 ' + sel.note) : null), search, mergeBtn, dlBtn, draftBtn),
+    h('div', { class: 'card soft stack' }, h('div', { class: 'row gap wrap' }, who, whoNote, date, h('div', { class: 'chips' }, MEMO_TAGS.map(tg => h('button', { class: 'chip', onclick: e => { tags.has(tg) ? tags.delete(tg) : tags.add(tg); e.currentTarget.classList.toggle('on'); } }, tg)))), txt,
       h('div', { class: 'row' }, h('span', { class: 'grow small muted' }, '배움마무리 응답 옆의 📝 버튼으로도 메모를 옮길 수 있습니다.'), h('button', { class: 'btn primary', onclick: () => {
         if (!txt.value.trim()) return toast('내용을 입력하세요', 'warn');
         const ms = memos(cls.id); ms.unshift({ id: uid(), num: String(who.value), date: date.value, tags: [...tags], text: txt.value.trim(), ts: Date.now() }); Store.set('memos:' + cls.id, ms); renderMemo();
@@ -487,7 +491,10 @@ function renderAttend() {
   const unplaced = studs.filter(s => !placed.has(String(s.num)));
   const counts = ATT_ORDER.slice(1).map(k => [k, studs.filter(s => day[s.num] === k).length]).filter(x => x[1]);
   const modeBtn = (m, l) => h('button', { class: 'tab' + (AttState.mode === m ? ' on' : ''), onclick: () => { AttState.mode = m; AttState.pick = null; renderAttend(); } }, l);
-  const head = h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, `🪑 ${cls.name} 출결 · 자리`), h('div', { class: 'tabs' }, modeBtn('check', '✅ 출결 체크'), modeBtn('seat', '🪑 자리 배치'), modeBtn('log', '📅 출결 현황')));
+  const head = h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, `🪑 ${cls.name} 출결 · 자리`),
+    h('button', { class: 'btn sm', title: '학생에게 나눠 줄 자리배치표 (교탁이 위)', onclick: () => printSeatChart(cls, seat, studs, false) }, '🖨 학생용 인쇄'),
+    h('button', { class: 'btn sm', title: '교탁에서 본 자리배치표 + 명렬표 비고 (교탁이 아래)', onclick: () => printSeatChart(cls, seat, studs, true) }, '🖨 교사용 인쇄'),
+    h('div', { class: 'tabs' }, modeBtn('check', '✅ 출결 체크'), modeBtn('seat', '🪑 자리 배치'), modeBtn('log', '📅 출결 현황')));
   root.append(h('div', { class: 'full-panel' }, head));
   const panel = $('.full-panel', root);
   if (AttState.mode === 'log') return panel.append(attLog(cls, studs, att));
@@ -517,6 +524,73 @@ function renderAttend() {
       h('div', { class: 'unplaced' }, unplaced.length ? unplaced.map(s => { const ch = h('button', { class: 'chip' + (AttState.pick && !AttState.pick.k && AttState.pick.num === s.num ? ' on' : ''), onclick: () => { if (AttState.dragged) { AttState.dragged = false; return; } AttState.pick = { num: s.num }; renderAttend(); } }, `${s.num} ${s.name}`); seatDrag(ch, { num: s.num, name: s.name }, (src, toK) => moveSeat(seat, src, toK, saveSeat)); return ch; }) : h('span', { class: 'muted small' }, '모든 학생이 배치되었습니다.')));
   }
   panel.append(h('div', { class: 'front' }, '교 탁'), grid);
+}
+/* 🖨 자리배치표 인쇄 — 왼쪽 학급 명렬, 오른쪽 자리배치
+   학생용: 학생이 앉아서 보는 방향(교탁이 위) / 교사용: 교탁에서 본 방향(교탁이 아래, 앞뒤·좌우 뒤집음) + 비고 */
+function printSeatChart(cls, seat, studs, teacher) {
+  const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  const byNum = n => studs.find(x => String(x.num) === String(n));
+  const R = seat.rows, C = seat.cols, block = seat.block || [];
+  const rows = [];
+  for (let i = 0; i < R; i++) {
+    const r = teacher ? R - 1 - i : i, row = [];
+    for (let j = 0; j < C; j++) {
+      const c = teacher ? C - 1 - j : j, k = `${r}-${c}`;
+      if (block.includes(k)) { row.push('<td class="blk"></td>'); continue; }
+      const st = seat.map[k] != null ? byNum(seat.map[k]) : null;
+      row.push(st ? `<td><div class="n">${esc(st.num)}</div><div class="nm">${esc(st.name)}</div>${teacher && st.note ? `<div class="note">${esc(st.note)}</div>` : ''}</td>` : '<td class="empty"></td>');
+    }
+    rows.push(`<tr>${row.join('')}</tr>`);
+  }
+  const all = S.students(cls, true);
+  const many = all.length > 24;
+  const roster = `<table class="ros${many ? ' many' : ''}"><thead><tr><th>번호</th><th>이름</th>${teacher ? '<th>비고</th>' : ''}</tr></thead><tbody>${all.map(st => {
+    const out = st.status && st.status !== '재적';
+    return `<tr class="${out ? 'out' : ''}"><td>${esc(st.num)}</td><td>${esc(st.name)}${out ? ` <small>(${esc(st.status)})</small>` : ''}</td>${teacher ? `<td class="nt">${esc(st.note || '')}</td>` : ''}</tr>`;
+  }).join('')}</tbody></table>`;
+  const desk = `<div class="desk">교 탁</div>`;
+  const B = Brand.get(), d = new Date(), date = `${d.getFullYear()}. ${d.getMonth() + 1}. ${d.getDate()}.`;
+  const html = `<!doctype html><html><head><meta charset="utf-8"><title>${esc(cls.name)} 자리배치표 (${teacher ? '교사용' : '학생용'})</title>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;700;900&display=swap" rel="stylesheet">
+<style>
+@page{size:A4 landscape;margin:9mm}
+*{box-sizing:border-box}body{margin:0;font-family:'Noto Sans KR','Malgun Gothic',sans-serif;color:#222;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.page{display:grid;grid-template-columns:${teacher ? '34%' : '24%'} 1fr;gap:7mm;height:190mm}
+.left h2,.right h1{margin:0 0 3mm}
+.left h2{font-size:13pt}.right h1{font-size:18pt;display:flex;align-items:baseline;gap:4mm}
+.right h1 small{font-size:10pt;font-weight:400;color:#666}
+.tag{font-size:9pt;border:1px solid #999;border-radius:99px;padding:.5mm 3mm;font-weight:700}
+.ros{width:100%;border-collapse:collapse;font-size:9.5pt}
+.ros.many{font-size:8pt}
+.ros th,.ros td{border:1px solid #bbb;padding:.9mm 1.6mm;text-align:left;vertical-align:top}
+.ros.many th,.ros.many td{padding:.5mm 1.4mm}
+.ros th{background:#f1ede4}
+.ros td:first-child,.ros th:first-child{text-align:center;width:9mm}
+.ros td:nth-child(2){white-space:nowrap}
+.ros .nt{color:#7a4a10;font-size:.92em}
+.ros tr.out td{color:#999;text-decoration:line-through}
+.right{display:flex;flex-direction:column}
+.desk{align-self:center;border:1.5px solid #555;border-radius:2mm;padding:1.5mm 14mm;font-weight:900;letter-spacing:3mm;margin:2mm 0;background:#f6f2ea}
+.seats{border-collapse:separate;border-spacing:2mm;width:100%;table-layout:fixed}
+.seats td{height:${Math.max(12, Math.floor((150 - 2 * R) / R))}mm}
+.seats td{border:1.4px solid #444;border-radius:2mm;text-align:center;vertical-align:middle;padding:1mm;overflow:hidden}
+.seats td .n{font-size:9pt;color:#666}
+.seats td .nm{font-size:${C > 6 ? 12 : 15}pt;font-weight:900;line-height:1.2}
+.seats td .note{font-size:7.5pt;color:#9a5b12;line-height:1.25;margin-top:.6mm;max-height:3.2em;overflow:hidden}
+.seats td.empty{border-style:dashed;border-color:#bbb}
+.seats td.blk{border:none;background:repeating-linear-gradient(45deg,#eee 0 3px,#fff 3px 7px)}
+.foot{display:flex;justify-content:space-between;font-size:8.5pt;color:#777;margin-top:2mm}
+</style></head><body><div class="page">
+<div class="left"><h2>${esc(cls.name)} 명렬 (${S.students(cls).length}명)</h2>${roster}</div>
+<div class="right"><h1>${esc(cls.name)} 자리배치표 <span class="tag">${teacher ? '교사용 · 교탁에서 본 모습' : '학생용'}</span><small>${esc(B.subject)}${B.teacher ? ' · ' + esc(B.teacher) + ' 선생님' : ''}</small></h1>
+${teacher ? '' : desk}<table class="seats">${rows.join('')}</table>${teacher ? desk : ''}
+<div class="foot"><span>${teacher ? '※ 교사용: 비고 메모가 들어 있어요. 학생에게 보이지 않게 보관하세요.' : ''}</span><span>${date}</span></div></div>
+</div></body></html>`;
+  const fr = h('iframe', { style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
+  document.body.append(fr);
+  fr.contentDocument.open(); fr.contentDocument.write(html); fr.contentDocument.close();
+  const go = () => { try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('인쇄 창을 열지 못했어요', 'err'); } setTimeout(() => fr.remove(), 3000); };
+  const fonts = fr.contentDocument.fonts; setTimeout(() => (fonts && fonts.ready ? Promise.race([fonts.ready, new Promise(r => setTimeout(r, 1500))]).then(go) : go()), 300);
 }
 /* 자리 끌어 옮기기 (마우스·터치 공통) */
 function moveSeat(seat, src, toK, save) {
@@ -636,30 +710,21 @@ function setClass(body) {
     h('button', { class: 'btn sm primary', onclick: async () => { const n = await promptBox('학급 이름 (예: 3학년 2반)', ''); if (!n) return; const c = { id: uid(), name: n, room: uid(10), students: [] }; S.saveClasses([...S.classes(), c]); S.setUI({ classId: c.id }); renderSettings(); } }, '+ 학급 추가')));
   if (!cur) { body.append(h('p', { class: 'muted' }, '학급을 추가하세요. 학급마다 고유한 QR이 만들어집니다.')); return; }
   const save = () => { const all = S.classes(); all[all.findIndex(x => x.id === cur.id)] = cur; S.saveClasses(all); keySync(); };
-  if (Keys.ensurePins(cur)) { const all = S.classes(); all[all.findIndex(x => x.id === cur.id)] = cur; S.saveClasses(all); }
+  let pinSt = null;   // { rid: { set, pin } } 서버에서 읽은 학생 비밀번호 상태
   let showPin = false;
   const keyState = h('span', { class: 'small muted' });
+  const loadSt = async () => { try { pinSt = await Live.rosterStatus(cur.room || S.room()); } catch (e) { console.warn(e); pinSt = null; } draw(); };
   const keySync = debounce(async (force = false) => {
     if (!Keys.canPublish()) { keyState.textContent = Live.cloud() ? '⚠ 교사 로그인 후 서버에 반영돼요' : ''; return; }
     keyState.textContent = '☁️ 반영 중…';
-    try { await Keys.syncAll(force); keyState.textContent = '✅ 학생 확인 명단이 서버에 반영됨'; }
+    try { await Keys.syncAll(force); keyState.textContent = '✅ 학생 확인 명단이 서버에 반영됨'; await loadSt(); }
     catch (e) { console.error(e); keyState.textContent = '❌ 반영 실패 — ' + fbWhy(e); }
   }, 800);
-  const printPins = () => {
-    const list = S.students(cur);
-    const url = S.studentURL();
-    const fr = h('iframe', { style: { position: 'fixed', right: '0', bottom: '0', width: '0', height: '0', border: '0' } });
-    document.body.append(fr);
-    const esc = t => String(t ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-    fr.contentDocument.write(`<!doctype html><html><head><meta charset="utf-8"><title>${esc(cur.name)} 비밀번호</title><style>
-      @page{size:A4;margin:10mm} body{font-family:'Noto Sans KR',sans-serif;margin:0}
-      .g{display:grid;grid-template-columns:repeat(3,1fr);gap:0}
-      .s{border:1px dashed #999;padding:10px 12px;height:30mm;box-sizing:border-box;break-inside:avoid}
-      .c{font-size:11px;color:#555}.n{font-size:15px;font-weight:700;margin:3px 0}.p{font-size:24px;font-weight:900;letter-spacing:6px}
-      .t{font-size:9px;color:#777;margin-top:2px;word-break:break-all}</style></head><body>
-      <div class="g">${list.map(st => `<div class="s"><div class="c">${esc(Brand.get().subject)} · ${esc(cur.name)}</div><div class="n">${esc(st.num)}번 ${esc(st.name)}</div><div>비밀번호 <span class="p">${esc(st.pin)}</span></div><div class="t">남에게 보여 주지 마세요</div></div>`).join('')}</div></body></html>`);
-    fr.contentDocument.close();
-    setTimeout(() => { fr.contentWindow.focus(); fr.contentWindow.print(); setTimeout(() => fr.remove(), 2000); }, 300);
+  const ridOf = s => Keys.rid(cur.room || S.room(), s.num, s.name);
+  const resetPins = async (studs, label) => {
+    if (!(await confirmBox(`${label}의 비밀번호를 초기화할까요? 다음에 QR로 들어올 때 학생이 새 비밀번호를 정해요. (이미 들어와 있던 휴대폰도 다시 들어와야 해요)`, '초기화', true))) return;
+    try { await Live.resetPin(cur.room || S.room(), await Promise.all(studs.map(ridOf))); toast('초기화했어요'); await loadSt(); }
+    catch (e) { console.error(e); toast('초기화하지 못했어요 — ' + fbWhy(e), 'err', 6000); }
   };
   const paste = h('textarea', { class: 'full', rows: 6, placeholder: '엑셀에서 복사해 붙여넣기 — 한 줄에 "번호 [탭] 이름" (예: 1	김가온)' });
   const tbl = h('div', { class: 'table-wrap' });
@@ -670,22 +735,27 @@ function setClass(body) {
       h('td', null, h('input', { value: s.name, onchange: e => { s.name = e.target.value; save(); } })),
       h('td', null, (() => { const x = h('select', { onchange: e => { s.status = e.target.value; save(); draw(); } }, STATUS.map(v => h('option', null, v))); x.value = s.status || '재적'; return x; })()),
       h('td', null, h('input', { value: s.note || '', placeholder: '예: 5/2 전입', onchange: e => { s.note = e.target.value; save(); } })),
-      h('td', null, showPin
-        ? h('div', { class: 'row gap' }, h('input', { class: 'w60 mono', maxlength: 4, inputmode: 'numeric', value: s.pin || '', onchange: e => { const v = e.target.value.trim(); if (!/^\d{4}$/.test(v)) { toast('숫자 4자리로 넣어 주세요', 'warn'); e.target.value = s.pin || ''; return; } s.pin = v; save(); } }),
-          h('button', { class: 'btn sm ghost', title: '새 비밀번호', onclick: () => { s.pin = Keys.newPin(); save(); draw(); } }, '🔄'))
-        : h('span', { class: 'muted mono' }, '••••')),
+      h('td', null, (() => { const td = h('span', { class: 'pin-st muted' }, pinSt ? '…' : '—');
+        if (pinSt) ridOf(s).then(r => { const st = pinSt[r] || {}; td.replaceChildren(st.set ? h('span', { class: 'ok-t' }, '✅ ', h('b', { class: 'mono' }, showPin ? (st.pin || '(모름)') : '••••')) : h('span', { class: 'muted' }, '⏳ 아직'), st.set ? h('button', { class: 'btn sm ghost', title: '비밀번호 초기화 (학생이 다시 정함)', onclick: () => resetPins([s], `${s.num}번 ${s.name}`) }, '🔄') : null); });
+        return td; })()),
       h('td', null, h('button', { class: 'x', onclick: async () => { if (await confirmBox(`${s.name} 학생을 명렬표에서 지울까요? (전출 등은 학적 상태로 표시하는 것을 권장)`, '지우기', true)) { cur.students = cur.students.filter(x => x !== s); save(); draw(); } } }, '✕')))))));
-  const addRows = rows => { let n = 0; for (const [num, name] of rows) { if (!num || !name) continue; const ex = cur.students.find(s => String(s.num) === String(num)); if (ex) ex.name = name; else cur.students.push({ num: String(num), name, status: '재적', pin: Keys.newPin() }); n++; } Keys.ensurePins(cur); save(); draw(); toast(`${n}명 반영`); };
+  const addRows = rows => { let n = 0; for (const [num, name] of rows) { if (!num || !name) continue; const ex = cur.students.find(s => String(s.num) === String(num)); if (ex) ex.name = name; else cur.students.push({ num: String(num), name, status: '재적' }); n++; } save(); draw(); toast(`${n}명 반영`); };
   body.append(h('div', { class: 'grid2' },
     h('div', { class: 'stack' }, h('h3', null, `${cur.name} — 명렬표 (재적 ${S.students(cur).length}명 / 전체 ${cur.students.length}명)`),
       h('div', { class: 'row gap' }, h('input', { class: 'full', value: cur.name, onchange: e => { cur.name = e.target.value; save(); } }),
         h('button', { class: 'btn danger sm', onclick: async () => { if (await confirmBox(`'${cur.name}' 학급을 삭제할까요? (출결·메모·성적 기록도 화면에서 사라집니다)`, '삭제', true)) { S.saveClasses(S.classes().filter(c => c.id !== cur.id)); S.setUI({ classId: S.classes()[0]?.id || '' }); renderSettings(); } } }, '학급 삭제')),
-      h('div', { class: 'card stack' }, h('b', null, '🔑 학생 확인 (반·번호·이름 + 개인 비밀번호 4자리)'),
-        h('p', { class: 'small muted' }, '학생은 QR로 들어올 때 반을 고르고 번호·이름·비밀번호를 넣어야 응답할 수 있어요. 명렬표에 없는 학생이나 비밀번호가 틀린 학생은 들어올 수 없어요. 비밀번호는 자동으로 만들어지고, 바꾸면 바로 서버에 반영돼요.'),
+      h('div', { class: 'card stack' }, h('b', null, '🔑 학생 확인 (반·번호·이름 + 학생이 정한 비밀번호 4자리)'),
+        h('p', { class: 'small muted' }, '학생은 처음 QR로 들어올 때 반·번호·이름을 넣고 자기 비밀번호 4자리를 직접 정해요. 다음부터는 그 비밀번호로 들어오고, 학생 화면의 👤에서 바꿀 수 있어요. 정하거나 바꾼 비밀번호는 여기 저장돼서 선생님이 볼 수 있어요(🔒). 잊은 학생에게 알려 주거나, 🔄로 초기화하면 다음에 들어올 때 새로 정해요. 명렬표에 없는 학생은 들어올 수 없어요.'),
         h('div', { class: 'row gap wrap' },
-          h('button', { class: 'btn sm', onclick: async () => { if (showPin) { showPin = false; draw(); return; } if (await Lock.ask('🔒 학생 비밀번호 보기 — 비밀번호')) { showPin = true; draw(); } } }, '👁 비밀번호 보기·숨기기'),
-          h('button', { class: 'btn sm', onclick: () => Lock.guard(printPins, '🔒 비밀번호 쪽지 인쇄 — 비밀번호') }, '🖨 비밀번호 쪽지 인쇄'),
-          h('button', { class: 'btn sm', onclick: () => Lock.guard(async () => { if (!(await confirmBox(`${cur.name} 학생 전체의 비밀번호를 새로 만들까요? 이미 들어와 있던 학생도 새 비밀번호로 다시 들어와야 해요.`, '새로 만들기', true))) return; cur.students.forEach(x => x.pin = Keys.newPin()); save(); draw(); toast('새 비밀번호를 만들었어요 — 쪽지를 다시 인쇄하세요'); }, '🔒 비밀번호 새로 만들기 — 비밀번호') }, '🎲 모두 새로 만들기'),
+          h('button', { class: 'btn sm', onclick: async () => { if (showPin) { showPin = false; draw(); return; } if (await Lock.ask('🔒 학생 비밀번호 보기 — 비밀번호')) { showPin = true; await loadSt(); } } }, '👁 비밀번호 보기·숨기기'),
+          h('button', { class: 'btn sm', onclick: () => loadSt() }, '↻ 새로 보기'),
+          h('button', { class: 'btn sm', onclick: () => Lock.guard(async () => {
+            await loadSt(); const rows = [];
+            for (const st of S.students(cur)) { const x = (pinSt || {})[await ridOf(st)] || {}; rows.push({ 번호: +st.num || st.num, 이름: st.name, 비밀번호: x.set ? (x.pin || '(모름)') : '아직 안 정함' }); }
+            const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 14 }]; XLSX.utils.book_append_sheet(wb, ws, '학생 비밀번호');
+            XLSX.writeFile(wb, `${cur.name}_학생비밀번호_${todayStr()}.xlsx`);
+          }, '🔒 학생 비밀번호 명단 — 비밀번호') }, '⬇️ 비밀번호 명단'),
+          h('button', { class: 'btn sm', onclick: () => Lock.guard(() => resetPins(S.students(cur), `${cur.name} 학생 전체`), '🔒 비밀번호 전체 초기화 — 비밀번호') }, '🔄 전체 초기화'),
           h('button', { class: 'btn sm', onclick: () => keySync(true) }, '☁️ 서버에 다시 반영')),
         keyState),
       tbl),
@@ -781,9 +851,42 @@ service cloud.firestore {
         allow read: if true;
         allow write: if isTeacher();
       }
-      match /keys/{k} {                    // 학생 확인용(반·번호·이름·비밀번호를 섞은 값) — 목록 보기 불가
+      match /roster/{rid} {               // 명단(반·번호·이름을 섞은 값) — 목록 보기 불가, 학생은 '비밀번호 정함' 표시만
         allow get: if true;
-        allow list, write: if isTeacher();
+        allow list, create, delete: if isTeacher();
+        allow update: if isTeacher() || (resource.data.set == false && request.resource.data.set == true
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['set']));
+      }
+      match /pins/{rid} {                  // 학생이 정한 비밀번호 — 선생님만 읽음 (학생은 정하기·바꾸기 때 쓰기만)
+        allow read, delete: if isTeacher();
+        allow create, update: if isTeacher() || (
+             request.resource.data.keys().hasOnly(['num', 'name', 'pin', 'k', 'at'])
+          && request.resource.data.pin is string && request.resource.data.pin.matches('^[0-9]{4}$')
+          && request.resource.data.k is string
+          && !exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))          // 이 묶음에서 새로 만든 열쇠와
+          && existsAfter(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))      // 짝이 맞을 때만
+          && getAfter(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.rid == rid);
+      }
+      match /keys/{k} {                    // 학생이 정한 비밀번호를 섞은 값 — 목록 보기 불가
+        allow get: if true;
+        allow list, update: if isTeacher();
+        allow delete: if true;             // 값(=비밀번호)을 아는 사람만 지울 수 있음 (비밀번호 바꾸기)
+        allow create: if isTeacher() || (
+             request.resource.data.keys().hasOnly(['num', 'name', 'rid', 'oldk'])
+          && request.resource.data.rid is string
+          && exists(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid))
+          && get(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.num == request.resource.data.num
+          && get(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.name == request.resource.data.name
+          && (
+               // 처음 정하기: 아직 안 정한 학생만, 같은 묶음에서 '정함' 표시
+               (get(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.set == false
+                 && getAfter(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.set == true)
+               // 바꾸기: 지금 비밀번호 값을 알고, 같은 묶음에서 그것을 지울 때만
+            || ('oldk' in request.resource.data
+                 && exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.oldk))
+                 && !existsAfter(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.oldk))
+                 && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.oldk)).data.rid == request.resource.data.rid)
+          ));
       }
       match /responses/{id} {
         allow create: if isTeacher() || (request.resource.size() < 900000      // 학생은 제출만, 명단·비밀번호가 맞을 때만, 마감 전에만

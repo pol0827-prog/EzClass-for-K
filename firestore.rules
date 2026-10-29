@@ -15,9 +15,42 @@ service cloud.firestore {
         allow read: if true;
         allow write: if isTeacher();
       }
-      match /keys/{k} {                    // 학생 확인용(반·번호·이름·비밀번호를 섞은 값) — 목록 보기 불가
+      match /roster/{rid} {               // 명단(반·번호·이름을 섞은 값) — 목록 보기 불가, 학생은 '비밀번호 정함' 표시만
         allow get: if true;
-        allow list, write: if isTeacher();
+        allow list, create, delete: if isTeacher();
+        allow update: if isTeacher() || (resource.data.set == false && request.resource.data.set == true
+                      && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['set']));
+      }
+      match /pins/{rid} {                  // 학생이 정한 비밀번호 — 선생님만 읽음 (학생은 정하기·바꾸기 때 쓰기만)
+        allow read, delete: if isTeacher();
+        allow create, update: if isTeacher() || (
+             request.resource.data.keys().hasOnly(['num', 'name', 'pin', 'k', 'at'])
+          && request.resource.data.pin is string && request.resource.data.pin.matches('^[0-9]{4}$')
+          && request.resource.data.k is string
+          && !exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))          // 이 묶음에서 새로 만든 열쇠와
+          && existsAfter(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))      // 짝이 맞을 때만
+          && getAfter(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.rid == rid);
+      }
+      match /keys/{k} {                    // 학생이 정한 비밀번호를 섞은 값 — 목록 보기 불가
+        allow get: if true;
+        allow list, update: if isTeacher();
+        allow delete: if true;             // 값(=비밀번호)을 아는 사람만 지울 수 있음 (비밀번호 바꾸기)
+        allow create: if isTeacher() || (
+             request.resource.data.keys().hasOnly(['num', 'name', 'rid', 'oldk'])
+          && request.resource.data.rid is string
+          && exists(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid))
+          && get(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.num == request.resource.data.num
+          && get(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.name == request.resource.data.name
+          && (
+               // 처음 정하기: 아직 안 정한 학생만, 같은 묶음에서 '정함' 표시
+               (get(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.set == false
+                 && getAfter(/databases/$(database)/documents/rooms/$(room)/roster/$(request.resource.data.rid)).data.set == true)
+               // 바꾸기: 지금 비밀번호 값을 알고, 같은 묶음에서 그것을 지울 때만
+            || ('oldk' in request.resource.data
+                 && exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.oldk))
+                 && !existsAfter(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.oldk))
+                 && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.oldk)).data.rid == request.resource.data.rid)
+          ));
       }
       match /responses/{id} {
         allow create: if isTeacher() || (request.resource.size() < 900000      // 학생은 제출만, 명단·비밀번호가 맞을 때만, 마감 전에만

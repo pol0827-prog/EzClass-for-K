@@ -12,13 +12,9 @@ function startStudent(room, pv = null) {
   const saveAuth = (r, a) => { const all = auths(); if (a) all[r] = a; else delete all[r]; localStorage.setItem(AUTH, JSON.stringify(all)); };
   let me = pv ? { num: '7', name: '미리보기', cls: S.cls()?.name || '', k: 'preview' } : (auths()[room] || {});
   const head = h('header', { class: 'stu-head' }, h('b', { class: 'subj' }, '수업'), h('span', { class: 'cls' }), h('span', { class: 'grow' }),
-    h('button', { class: 'btn sm', title: '나가기(다른 학생으로)', onclick: async () => {
-      if (pv) return toast('미리보기에서는 나갈 수 없어요', 'warn');
-      if (!me.k) return;
-      if (await confirmBox(`${me.num}번 ${me.name} 학생에서 나갈까요? 다시 들어오려면 비밀번호가 필요해요.`, '나가기')) { saveAuth(room, null); me = {}; render(); }
-    } }, '👤'));
+    h('button', { class: 'btn sm', title: '내 정보·비밀번호 바꾸기', onclick: () => { if (pv) return toast('미리보기에서는 쓸 수 없어요', 'warn'); if (me.k) meMenu(); } }, '👤'));
   const main = h('main', { class: 'stu-main' });
-  app.append(head, main);
+  app.append(head, main, h('footer', { class: 'stu-ver' }, '버전 ' + (typeof APP_VER !== 'undefined' ? APP_VER : '')));
   if (!pv && !Live.cloud() && !location.search.includes('local')) {
     // 로컬 모드: 같은 브라우저에서만 동작 (교사 미리보기용)
     main.append(h('div', { class: 'warnbox' }, '서버가 연결되지 않은 미리보기 모드입니다. 같은 컴퓨터의 교사 화면과만 연동됩니다.'));
@@ -29,6 +25,14 @@ function startStudent(room, pv = null) {
   const saveMe = () => { if (!pv) saveAuth(room, me); };
   /* 다른 학급(반)을 고른 경우 그 학급 화면으로 옮기기 */
   const goRoom = r => { const u = new URL(location.href); u.searchParams.set('r', r); location.replace(u.toString()); };
+  const failLock = {
+    get() { try { return JSON.parse(localStorage.getItem('stu:fail')) || { n: 0, until: 0 }; } catch { return { n: 0, until: 0 }; } },
+    wait() { const l = this.get(); return l.until > Date.now() ? Math.ceil((l.until - Date.now()) / 1000) : 0; },
+    bad() { const l = this.get(); l.n = (l.n || 0) + 1; if (l.n >= 5) { l.n = 0; l.until = Date.now() + 60000; } localStorage.setItem('stu:fail', JSON.stringify(l)); return l.until > Date.now(); },
+    ok() { localStorage.setItem('stu:fail', JSON.stringify({ n: 0, until: 0 })); }
+  };
+  const pinIn = ph => h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 4, placeholder: ph, class: 'big-in pin-in', autocomplete: 'off' });
+  const busy = (b, on, label) => { b.disabled = on; b.textContent = label; };
   function loginView(msg) {
     view = 'login';
     const sib = room$.siblings && room$.siblings.length ? room$.siblings : room$.classLabel ? [{ name: room$.classLabel, room }] : [];
@@ -36,39 +40,98 @@ function startStudent(room, pv = null) {
       main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '📋'), h('h2', null, '선생님이 아직 학생 명단을 올리지 않았어요'), h('p', { class: 'muted' }, '선생님께 알려 주세요. 명단이 올라오면 이 화면이 자동으로 바뀌어요.')));
       return;
     }
+    if (!window.crypto?.subtle) { main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '이 브라우저에서는 들어갈 수 없어요'), h('p', null, '크롬이나 사파리로 다시 열어 주세요.'))); return; }
     let pick = sib.some(x => x.room === room) ? room : (sib.length === 1 ? sib[0].room : null);
     const chips = h('div', { class: 'chips' }, sib.map(x => h('button', { class: 'chip' + (x.room === pick ? ' on' : ''), onclick: e => { pick = x.room; $$('.chip', chips).forEach(b => b.classList.remove('on')); e.currentTarget.classList.add('on'); } }, x.name)));
     const n = h('input', { type: 'number', inputmode: 'numeric', placeholder: '번호', class: 'big-in', autocomplete: 'off' });
     const nm = h('input', { placeholder: '이름', class: 'big-in', autocomplete: 'off' });
-    const pw = h('input', { type: 'password', inputmode: 'numeric', pattern: '[0-9]*', maxlength: 4, placeholder: '비밀번호 4자리', class: 'big-in pin-in', autocomplete: 'off' });
-    const btn = h('button', { class: 'btn primary lg full' }, '들어가기');
-    const go = async () => {
-      const lock = (() => { try { return JSON.parse(localStorage.getItem('stu:fail')) || { n: 0, until: 0 }; } catch { return { n: 0, until: 0 }; } })();
-      if (lock.until > Date.now()) return toast(`잠시 후 다시 해 보세요 (${Math.ceil((lock.until - Date.now()) / 1000)}초)`, 'warn');
+    const btn = h('button', { class: 'btn primary lg full' }, '다음');
+    const finish = (rid, ro, k) => {
+      failLock.ok();
+      const a = { room: pick, cls: (sib.find(x => x.room === pick) || {}).name || '', num: ro.num, name: ro.name, rid, k };
+      saveAuth(pick, a);
+      if (pick !== room) return goRoom(pick);
+      me = a; render(); gpCheck();
+    };
+    /* 2단계-가: 처음 → 비밀번호 정하기 */
+    const setPinView = (rid, ro) => {
+      const p1 = pinIn('비밀번호 4자리'), p2 = pinIn('한 번 더');
+      const b = h('button', { class: 'btn primary lg full' }, '이 비밀번호로 정하기');
+      const go = async () => {
+        if (!/^\d{4}$/.test(p1.value)) return toast('숫자 4자리로 정해 주세요', 'warn');
+        if (p1.value !== p2.value) { p2.value = ''; return toast('두 번 쓴 비밀번호가 달라요', 'warn'); }
+        if (/^(\d)\1{3}$/.test(p1.value) || ['1234', '4321', '0123', '9876'].includes(p1.value)) return toast('너무 쉬운 비밀번호예요. 다른 숫자로 정해 주세요', 'warn');
+        busy(b, true, '저장 중…');
+        try { const k = await Keys.hash(pick, ro.num, ro.name, p1.value); await Live.claimPin(pick, rid, k, ro, p1.value); toast('비밀번호를 정했어요! 잊지 마세요 🔑', 'ok', 4000); finish(rid, ro, k); }
+        catch (e) { console.error(e); busy(b, false, '이 비밀번호로 정하기'); toast(/permission/.test(e.code || '') ? '이미 비밀번호가 정해져 있어요. 처음부터 다시 해 주세요' : '저장하지 못했어요 (' + (e.code || e.message) + ')', 'err', 5000); }
+      };
+      b.onclick = go; p2.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+      main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, `🔑 ${ro.num}번 ${ro.name}, 반가워요!`),
+        h('p', null, '처음 들어왔어요. 앞으로 쓸 ', h('b', null, '나만의 비밀번호 4자리'), '를 정해 주세요.'),
+        h('p', { class: 'small muted' }, '다른 친구가 내 이름으로 들어오지 못하게 막아 줘요. 정한 비밀번호는 선생님도 볼 수 있어요. 잊어버리면 선생님께 물어보거나 초기화를 부탁하세요.'),
+        p1, p2, b, h('button', { class: 'btn full', onclick: () => loginView() }, '← 처음으로')));
+      setTimeout(() => p1.focus(), 50);
+    };
+    /* 2단계-나: 비밀번호 넣기 */
+    const askPinView = (rid, ro) => {
+      const pw = pinIn('내 비밀번호 4자리');
+      const b = h('button', { class: 'btn primary lg full' }, '들어가기');
+      const go = async () => {
+        const w = failLock.wait(); if (w) return toast(`잠시 후 다시 해 보세요 (${w}초)`, 'warn');
+        if (!/^\d{4}$/.test(pw.value)) return toast('비밀번호는 숫자 4자리예요', 'warn');
+        busy(b, true, '확인 중…');
+        try {
+          const k = await Keys.hash(pick, ro.num, ro.name, pw.value);
+          if (await Live.getKey(pick, k)) return finish(rid, ro, k);
+          const locked = failLock.bad(); pw.value = ''; busy(b, false, '들어가기');
+          toast(locked ? '5번 틀렸어요. 1분 뒤에 다시 해 보세요' : '비밀번호가 맞지 않아요. 잊어버렸으면 선생님께 물어보세요', 'err', 5000);
+        } catch (e) { console.error(e); busy(b, false, '들어가기'); toast('확인하지 못했어요. 인터넷 연결을 확인하세요', 'err', 5000); }
+      };
+      b.onclick = go; pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+      main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, `🔒 ${ro.num}번 ${ro.name}`), h('p', { class: 'muted' }, '내가 정한 비밀번호 4자리를 넣어 주세요.'), pw, b,
+        h('button', { class: 'btn full', onclick: () => loginView() }, '← 처음으로')));
+      setTimeout(() => pw.focus(), 50);
+    };
+    /* 1단계: 반·번호·이름 */
+    const next = async () => {
+      const w = failLock.wait(); if (w) return toast(`잠시 후 다시 해 보세요 (${w}초)`, 'warn');
       if (!pick) return toast('반을 골라 주세요', 'warn');
       if (!n.value || !nm.value.trim()) return toast('번호와 이름을 입력하세요', 'warn');
-      if (!/^\d{4}$/.test(pw.value.trim())) return toast('비밀번호는 숫자 4자리예요', 'warn');
-      if (!window.crypto?.subtle) return toast('이 브라우저에서는 들어갈 수 없어요. 크롬·사파리로 열어 주세요', 'err', 5000);
-      btn.disabled = true; btn.textContent = '확인 중…';
+      busy(btn, true, '확인 중…');
       try {
-        const k = await Keys.hash(pick, n.value, nm.value, pw.value);
-        const d = await Live.getKey(pick, k);
-        if (!d) {
-          lock.n = (lock.n || 0) + 1; if (lock.n >= 5) { lock.n = 0; lock.until = Date.now() + 60000; }
-          localStorage.setItem('stu:fail', JSON.stringify(lock));
-          toast(lock.until > Date.now() ? '5번 틀렸어요. 1분 뒤에 다시 해 보세요' : '반·번호·이름·비밀번호가 맞지 않아요. 비밀번호를 모르면 선생님께 물어보세요', 'err', 5000);
-          pw.value = ''; btn.disabled = false; btn.textContent = '들어가기'; return;
-        }
-        localStorage.setItem('stu:fail', JSON.stringify({ n: 0, until: 0 }));
-        const a = { room: pick, cls: (sib.find(x => x.room === pick) || {}).name || '', num: d.num, name: d.name, k };
-        saveAuth(pick, a);
-        if (pick !== room) return goRoom(pick);
-        me = a; render(); gpCheck();
-      } catch (e) { console.error(e); toast('확인하지 못했어요. 인터넷 연결을 확인하세요 (' + (e.code || e.message) + ')', 'err', 5000); btn.disabled = false; btn.textContent = '들어가기'; }
+        const rid = await Keys.rid(pick, n.value, nm.value);
+        const ro = await Live.getRoster(pick, rid);
+        busy(btn, false, '다음');
+        if (!ro) { failLock.bad(); return toast('명단에 없어요. 반·번호·이름을 다시 확인해 주세요', 'err', 5000); }
+        ro.set ? askPinView(rid, ro) : setPinView(rid, ro);
+      } catch (e) { console.error(e); busy(btn, false, '다음'); toast('확인하지 못했어요. 인터넷 연결을 확인하세요 (' + (e.code || e.message) + ')', 'err', 5000); }
     };
-    btn.onclick = go; pw.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
+    btn.onclick = next; nm.addEventListener('keydown', e => { if (e.key === 'Enter') next(); });
     main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '👋 우리 반 학생 확인'), msg ? h('div', { class: 'warnbox small' }, msg) : h('p', { class: 'muted' }, '한 번 들어오면 이 휴대폰에 기억돼요.'),
-      h('label', null, '반'), chips, h('label', null, '번호 · 이름'), n, nm, h('label', null, '비밀번호 (선생님께 받은 숫자 4자리)'), pw, btn));
+      h('label', null, '반'), chips, h('label', null, '번호 · 이름'), n, nm, btn));
+  }
+  /* 👤 내 정보: 비밀번호 바꾸기 · 나가기 */
+  function meMenu() {
+    const p0 = pinIn('지금 비밀번호'), p1 = pinIn('새 비밀번호 4자리'), p2 = pinIn('새 비밀번호 한 번 더');
+    const box = h('div', { class: 'stack' });
+    const m = modal({ title: `👤 ${me.num}번 ${me.name}`, body: box, actions: [{ label: '닫기' }] });
+    const chg = h('button', { class: 'btn primary full' }, '🔑 비밀번호 바꾸기');
+    chg.onclick = async () => {
+      if (![p0, p1, p2].every(x => /^\d{4}$/.test(x.value))) return toast('모두 숫자 4자리로 넣어 주세요', 'warn');
+      if (p1.value !== p2.value) { p2.value = ''; return toast('새 비밀번호 두 개가 달라요', 'warn'); }
+      if (/^(\d)\1{3}$/.test(p1.value) || ['1234', '4321', '0123', '9876'].includes(p1.value)) return toast('너무 쉬운 비밀번호예요', 'warn');
+      busy(chg, true, '바꾸는 중…');
+      try {
+        const oldk = await Keys.hash(room, me.num, me.name, p0.value);
+        if (oldk !== me.k) { busy(chg, false, '🔑 비밀번호 바꾸기'); p0.value = ''; failLock.bad(); return toast('지금 비밀번호가 맞지 않아요', 'err'); }
+        const newk = await Keys.hash(room, me.num, me.name, p1.value);
+        const rid = me.rid || await Keys.rid(room, me.num, me.name);
+        await Live.changePin(room, oldk, newk, { num: me.num, name: me.name }, rid, p1.value);
+        me.k = newk; me.rid = rid; saveMe(); m.close(); toast('비밀번호를 바꿨어요 🔑', 'ok');
+      } catch (e) { console.error(e); busy(chg, false, '🔑 비밀번호 바꾸기'); toast('바꾸지 못했어요 (' + (e.code || e.message) + ')', 'err', 5000); }
+    };
+    box.append(h('b', null, '비밀번호 바꾸기'), p0, p1, p2, chg, h('hr'),
+      h('button', { class: 'btn full', onclick: () => { m.close(); saveAuth(room, null); me = {}; render(); } }, '🚪 나가기 (다른 학생으로 들어가기)'));
   }
   const send = async (data, btn) => {
     btn.disabled = true; const old = btn.textContent; btn.textContent = '보내는 중…';

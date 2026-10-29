@@ -1364,3 +1364,13 @@ body.student #clock{display:none}
 .live-now .btn{margin-left:auto}
 .qr-present .live-now{font-size:1.1rem;max-width:760px;margin:10px auto;color:var(--ink)}
 @keyframes lnBlink{50%{opacity:.3}}
+
+/* 버전 표시 */
+.app-ver{display:block;text-align:center;font-size:.7rem;opacity:.6;margin-top:4px}
+.stu-ver{text-align:center;font-size:.7rem;color:#9ca3af;padding:14px 0 20px}
+#top #clockSlot{margin-left:6px}
+.stu-note{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:99px;background:#fff4e0;color:#9a5b12;font-size:.78rem;font-weight:600;max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.stu-note:empty{display:none}
+.stu-row .stu-note{max-width:110px;font-size:.72rem}
+.stu-note.big{font-size:.9rem;max-width:420px}
+.stu-note-box{background:#fff4e0;color:#7a4a10;border-radius:10px;padding:8px 12px;font-size:.92rem}

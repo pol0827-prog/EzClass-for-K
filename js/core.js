@@ -379,30 +379,83 @@ const Live = {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).set(patch, { merge: true });
     this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...patch }); emit('room', room);
   },
-  /* 학생 확인 열쇠: rooms/{room}/keys/{해시} — 학생은 정확한 해시로 1건만 조회 가능(목록 보기 불가) */
+  /* 학생 확인 — 학생이 직접 정하는 비밀번호
+     rooms/{room}/roster/{rid}  rid=해시(방·번호·이름) {num,name,set}  — 명단에 있는지, 비밀번호를 정했는지 (정확한 rid로만 조회)
+     rooms/{room}/keys/{k}      k=해시(방·번호·이름·비밀번호) {num,name,rid} — 응답 제출 때 서버가 확인 */
+  _rref(room) { return FB.db.collection('rooms').doc(room); },
   async getKey(room, k) {
-    if (this.cloud()) { const d = await FB.db.collection('rooms').doc(room).collection('keys').doc(k).get(); return d.exists ? d.data() : null; }
+    if (this.cloud()) { const d = await this._rref(room).collection('keys').doc(k).get(); return d.exists ? d.data() : null; }
     return this._lsGet('keys:' + room, {})[k] || null;
   },
-  async putKeys(room, map, meta) {
+  async getRoster(room, rid) {
+    if (this.cloud()) { const d = await this._rref(room).collection('roster').doc(rid).get(); return d.exists ? d.data() : null; }
+    return this._lsGet('roster:' + room, {})[rid] || null;
+  },
+  /* 처음 비밀번호 정하기 */
+  async claimPin(room, rid, k, who, pin) {
+    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(k), { num: who.num, name: who.name, rid }); b.update(r.collection('roster').doc(rid), { set: true }); b.set(r.collection('pins').doc(rid), { num: who.num, name: who.name, pin, k, at: Date.now() }); return b.commit(); }
+    const ro = this._lsGet('roster:' + room, {}); if (!ro[rid] || ro[rid].set) throw Object.assign(new Error('이미 정해졌어요'), { code: 'permission-denied' });
+    const ks = this._lsGet('keys:' + room, {}); ks[k] = { num: who.num, name: who.name, rid }; ro[rid].set = true; this._lsSet('keys:' + room, ks); this._lsSet('roster:' + room, ro);
+    const ps = this._lsGet('pins:' + room, {}); ps[rid] = { num: who.num, name: who.name, pin, k, at: Date.now() }; this._lsSet('pins:' + room, ps);
+  },
+  /* 비밀번호 바꾸기 (지금 비밀번호를 아는 사람만) */
+  async changePin(room, oldk, newk, who, rid, pin) {
+    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(newk), { num: who.num, name: who.name, rid, oldk }); b.delete(r.collection('keys').doc(oldk)); b.set(r.collection('pins').doc(rid), { num: who.num, name: who.name, pin, k: newk, at: Date.now() }); return b.commit(); }
+    const ks = this._lsGet('keys:' + room, {}); if (!ks[oldk]) throw Object.assign(new Error('지금 비밀번호가 맞지 않아요'), { code: 'permission-denied' });
+    delete ks[oldk]; ks[newk] = { num: who.num, name: who.name, rid }; this._lsSet('keys:' + room, ks);
+    const ps = this._lsGet('pins:' + room, {}); ps[rid] = { num: who.num, name: who.name, pin, k: newk, at: Date.now() }; this._lsSet('pins:' + room, ps);
+  },
+  /* 교사: 명단 올리기 (비밀번호 정한 상태는 그대로 둠, 명단에서 빠진 학생의 비밀번호는 지움) */
+  async putRoster(room, map, meta) {
     if (this.cloud()) {
-      const rref = FB.db.collection('rooms').doc(room), col = rref.collection('keys');
-      const old = await col.get(), ops = [];
-      old.forEach(d => { if (!map[d.id]) ops.push(['del', d.ref]); });
-      for (const [k, v] of Object.entries(map)) ops.push(['set', col.doc(k), v]);
-      for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, r, v]) => t === 'del' ? b.delete(r) : b.set(r, v)); await b.commit(); }
-      await rref.set(meta, { merge: true });
+      const r = this._rref(room), rc = r.collection('roster'), kc = r.collection('keys');
+      const [ro, ks] = await Promise.all([rc.get(), kc.get()]); const have = new Set(), ops = [];
+      ro.forEach(d => { if (map[d.id]) have.add(d.id); else ops.push(['del', d.ref]); });
+      for (const [rid, v] of Object.entries(map)) if (!have.has(rid)) ops.push(['set', rc.doc(rid), { ...v, set: false }]);
+      ks.forEach(d => { const x = d.data(); if (!x.rid || !map[x.rid]) ops.push(['del', d.ref]); });
+      try { (await r.collection('pins').get()).forEach(d => { if (!map[d.id]) ops.push(['del', d.ref]); }); } catch (e) { console.warn('pins', e); }
+      for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, ref, v]) => t === 'del' ? b.delete(ref) : b.set(ref, v)); await b.commit(); }
+      await r.set(meta, { merge: true });
       return;
     }
-    this._lsSet('keys:' + room, map);
+    const ro = this._lsGet('roster:' + room, {}), out = {};
+    for (const [rid, v] of Object.entries(map)) out[rid] = { ...v, set: !!ro[rid]?.set };
+    const ks = this._lsGet('keys:' + room, {}); for (const k of Object.keys(ks)) if (!ks[k].rid || !out[ks[k].rid]) delete ks[k];
+    const ps = this._lsGet('pins:' + room, {}); for (const k of Object.keys(ps)) if (!out[k]) delete ps[k];
+    this._lsSet('roster:' + room, out); this._lsSet('keys:' + room, ks); this._lsSet('pins:' + room, ps);
     this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...meta }); emit('room', room);
+  },
+  /* 교사: 비밀번호 정했는지 한눈에 { rid: true/false } */
+  async rosterStatus(room) {
+    if (this.cloud()) {
+      const r = this._rref(room), [s, p] = await Promise.all([r.collection('roster').get(), r.collection('pins').get().catch(() => null)]); const m = {}, pins = {};
+      p && p.forEach(d => pins[d.id] = d.data());
+      s.forEach(d => m[d.id] = { set: !!d.data().set, pin: d.data().set ? (pins[d.id]?.pin || '') : '' }); return m;
+    }
+    const ro = this._lsGet('roster:' + room, {}), ps = this._lsGet('pins:' + room, {});
+    return Object.fromEntries(Object.entries(ro).map(([k, v]) => [k, { set: !!v.set, pin: v.set ? (ps[k]?.pin || '') : '' }]));
+  },
+  /* 교사: 비밀번호 초기화 → 학생이 다음에 들어올 때 새로 정함 */
+  async resetPin(room, rids) {
+    rids = [].concat(rids);
+    if (this.cloud()) {
+      const r = this._rref(room), ks = await r.collection('keys').get(), ops = [];
+      ks.forEach(d => { if (rids.includes(d.data().rid)) ops.push(['del', d.ref]); });
+      rids.forEach(rid => { ops.push(['upd', r.collection('roster').doc(rid)]); ops.push(['del', r.collection('pins').doc(rid)]); });
+      for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, ref]) => t === 'del' ? b.delete(ref) : b.set(ref, { set: false }, { merge: true })); await b.commit(); }
+      return;
+    }
+    const ro = this._lsGet('roster:' + room, {}), ks = this._lsGet('keys:' + room, {});
+    const ps = this._lsGet('pins:' + room, {});
+    rids.forEach(rid => { if (ro[rid]) ro[rid].set = false; delete ps[rid]; }); for (const k of Object.keys(ks)) if (rids.includes(ks[k].rid)) delete ks[k];
+    this._lsSet('roster:' + room, ro); this._lsSet('keys:' + room, ks); this._lsSet('pins:' + room, ps);
   },
   async updateResp(room, id, patch) {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).collection('responses').doc(id).set(patch, { merge: true });
     const arr = this._lsGet('resp:' + room, []); const r = arr.find(x => x.id === id); if (r) Object.assign(r, patch); this._lsSet('resp:' + room, arr); emit('resp', room);
   }
 };
-/* ---------- 학생 확인: 반(학급)·번호·이름·개인 비밀번호 4자리 ---------- */
+/* ---------- 학생 확인: 반(학급)·번호·이름 + 학생이 직접 정한 비밀번호 4자리 ---------- */
 const Keys = {
   norm(s) { return String(s ?? '').replace(/\s+/g, ''); },
   numN(n) { const t = String(n ?? '').trim(); return /^\d+$/.test(t) ? String(+t) : t; },
@@ -411,26 +464,23 @@ const Keys = {
     const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
     return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
   },
-  newPin() { const a = new Uint32Array(1); crypto.getRandomValues(a); return String(a[0] % 10000).padStart(4, '0'); },
-  /* 비밀번호 없는 학생에게 새로 만들어 줌 → 만든 수 */
-  ensurePins(cls) { let n = 0; for (const s of cls.students || []) if (!/^\d{4}$/.test(s.pin || '')) { s.pin = this.newPin(); n++; } return n; },
+  rid(room, num, name) { return this.hash(room, num, name, '#roster'); },
   siblings() { return S.classes().filter(c => c.room).map(c => ({ name: c.name, room: c.room })); },
   canPublish() { return !Live.cloud() || (FB.user && FB.isTeacher()); },
   async sync(cls, force = false) {
     if (!cls.room) cls.room = uid(10);
-    this.ensurePins(cls);
-    const entries = await Promise.all(S.students(cls).filter(s => s.name).map(async s => [await this.hash(cls.room, s.num, s.name, s.pin), { num: this.numN(s.num), name: String(s.name).trim() }]));
+    const entries = await Promise.all(S.students(cls).filter(s => s.name).map(async s => [await this.rid(cls.room, s.num, s.name), { num: this.numN(s.num), name: String(s.name).trim() }]));
     const meta = { classLabel: cls.name, subject: Brand.get().subject, siblings: this.siblings() };
-    const sig = await this.hash(cls.room, entries.map(e => e[0]).sort().join(','), JSON.stringify(meta), 'v1');
+    const sig = await this.hash(cls.room, entries.map(e => e[0]).sort().join(','), JSON.stringify(meta), 'v2');
     if (!force && cls.keysSig === sig) return false;
-    await Live.putKeys(cls.room, Object.fromEntries(entries), meta);
+    await Live.putRoster(cls.room, Object.fromEntries(entries), meta);
     cls.keysSig = sig; return true;
   },
-  /* 모든 학급의 명단·비밀번호를 서버에 반영 (바뀐 학급만) */
+  /* 모든 학급의 명단을 서버에 반영 (바뀐 학급만) */
   async syncAll(force = false) {
     if (!this.canPublish() || !window.crypto?.subtle) return 0;
     const cs = S.classes(), before = JSON.stringify(cs); let n = 0;
-    try { for (const c of cs) if (await this.sync(c, force)) n++; }
+    try { for (const c of cs) { if (c.students) c.students.forEach(x => delete x.pin); if (await this.sync(c, force)) n++; } }
     finally { if (JSON.stringify(cs) !== before) S.saveClasses(cs); }
     return n;
   }
