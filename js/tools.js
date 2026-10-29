@@ -219,7 +219,7 @@ function welcome() {
 const Lock = {
   open: false,
   async hash(pin) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('hwajak-pin:' + pin)); return Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join(''); },
-  async check(pin) { const saved = Store.get('pinhash', null); return saved ? (await this.hash(pin)) === saved : pin === '6957'; },
+  async check(pin) { const saved = Store.get('pinhash', null); return saved ? (await this.hash(pin)) === saved : pin === '1234'; },
   ask(title = '🔒 비밀번호를 입력해 주세요') {
     return new Promise(res => {
       // 화면에 숫자판을 띄우지 않음: 키보드로만 입력 (프로젝터에 노출 방지)
