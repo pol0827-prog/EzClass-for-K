@@ -225,8 +225,16 @@ function guideToHTML(g) {
 }
 
 /* ---------- 업로드 → 안내 만들기 ---------- */
-async function uploadEvalDoc(tab) {
-  const f = await pickFile('.hwp,.hwpx,.pdf,.txt'); if (!f) return;
+let _evalUploading = false;
+async function uploadEvalDoc(tab, file = null) {
+  if (_evalUploading) return toast('파일을 읽는 중이에요. 잠시만 기다려 주세요', 'warn');
+  const f = file || await pickFile('.hwp,.hwpx,.pdf,.txt'); if (!f) return;
+  _evalUploading = true;
+  try { await uploadEvalDocRun(tab, f); }
+  catch (e) { console.error(e); toast('올리는 중 문제가 생겼어요: ' + (e.message || e), 'err', 6000); }
+  finally { _evalUploading = false; document.querySelectorAll('.modal-back').forEach(m => { if (m.querySelector('.eg-loading')) m.remove(); }); try { renderEval(); } catch { } }
+}
+async function uploadEvalDocRun(tab, f) {
   const box = modal({ title: '📎 계획서 읽는 중', body: h('div', { class: 'stack' }, h('div', { class: 'eg-loading' }, h('span', { class: 'spin' })), h('p', { class: 'muted' }, '파일을 읽고 있어요…')), actions: [] });
   const say = t => { const p = $('p', box.el); if (p) p.textContent = t; };
   try {
@@ -262,16 +270,32 @@ async function uploadEvalDoc(tab) {
     } else {
       toDoc();
       Store.set('local:evalView:' + tab, 'doc');
-      toast('AI 키가 없어 글자만 옮겼어요. 설정 → AI 키를 넣으면 그림 안내로 바꿔 줍니다', 'warn', 6000);
+      toast('AI를 쓸 수 없어 글자만 옮겼어요. Vercel에 AI 키가 있는지 확인해 주세요', 'warn', 6000);
     }
   } catch (e) { console.error(e); box.close(); modal({ title: '😥 파일을 읽지 못했어요', body: h('div', { class: 'stack' }, h('p', null, e.message || String(e)), h('p', { class: 'muted small' }, `파일: ${f.name} (${(f.size / 1024).toFixed(0)}KB)`), tipI('가장 확실한 방법: 한글에서 [파일 → 다른 이름으로 저장 → PDF]로 저장해 올리기')) }); renderEval(); return; }
   box.close(); renderEval();
 }
+/* 파일을 끌어다 놓아도 올라가게 */
+function evalDropZone(el, tab) {
+  el.addEventListener('dragover', e => { e.preventDefault(); el.classList.add('over'); });
+  el.addEventListener('dragleave', () => el.classList.remove('over'));
+  el.addEventListener('drop', e => { e.preventDefault(); el.classList.remove('over'); const f = e.dataTransfer?.files?.[0]; if (f) uploadEvalDoc(tab, f); });
+  return el;
+}
 function evalGuideView(tab, ed, saveDoc) {
+  try { return evalGuideViewInner(tab, ed, saveDoc); }
+  catch (e) {
+    console.error(e);
+    return h('div', { class: 'stack' }, h('div', { class: 'warnbox' }, '저장된 안내를 그리지 못했어요. 파일을 다시 올려 주세요. (' + (e.message || e) + ')'),
+      evalDropZone(h('div', { class: 'eg-drop', onclick: () => uploadEvalDoc(tab) }, h('div', { class: 'eg-drop-ic' }, '📎'), h('b', null, '파일 다시 올리기'), h('small', { class: 'muted' }, 'HWP · HWPX · PDF')), tab));
+  }
+}
+function evalGuideViewInner(tab, ed, saveDoc) {
   const g = Store.get('evalguide:' + tab, null), src = Store.get('evalsrc:' + tab, null);
   const up = h('div', { class: 'eg-drop', onclick: () => uploadEvalDoc(tab) },
     h('div', { class: 'eg-drop-ic' }, '📎'), h('b', null, tab === 'written' ? (g ? '다른 파일 올리기' : '정기시험 범위 및 안내 사항을 포함한 파일을 올려 주세요') : (g ? '다른 계획서 올리기' : '평가 계획서를 올려 주세요')),
-    h('small', { class: 'muted' }, tab === 'written' ? 'HWP · HWPX · PDF — 우리 과목 시험 날짜·시간·범위만 골라 정리해 드려요' : 'HWP · HWPX · PDF — 학생들이 한눈에 이해하는 안내로 바꿔 드려요'));
+    h('small', { class: 'muted' }, (tab === 'written' ? 'HWP · HWPX · PDF — 우리 과목 시험 날짜·시간·범위만 골라 정리해 드려요' : 'HWP · HWPX · PDF — 학생들이 한눈에 이해하는 안내로 바꿔 드려요') + ' · 눌러서 고르거나 여기로 끌어다 놓기'));
+  evalDropZone(up, tab);
   const target = tab === 'written' ? examTargetBar() : null;
   if (!g) return h('div', { class: 'stack' }, target, h('div', { class: 'eg-empty' }, up));
   if (tab === 'written' && g.kind !== 'exam') return h('div', { class: 'stack' }, target, h('div', { class: 'eg-dempty' }, '예전 방식으로 만든 안내예요. 우리 과목 일정·범위로 다시 정리할까요?', h('br'), h('br'),
@@ -303,7 +327,7 @@ function critDetail(g, ii, ci, tab, color = '#d0628a') {
     const lv = c.levels || [], mx = Math.max(...lv.map(l => num(l.points) || 0), num(c.points) || 0, 1);
     const src = tab ? Store.get('evalsrc:' + tab, null) : null;
     const findBtn = src?.text ? h('button', { class: 'btn' + (lv.length ? '' : ' primary'), onclick: e => withBusy(e.currentTarget, '계획서에서 찾는 중…', async () => {
-      if (!(await AI.available())) return toast('설정 → AI 키를 넣어 주세요', 'warn');
+      if (!(await AI.available())) return toast('AI를 쓸 수 없어요. Vercel 환경 변수의 AI 키를 확인해 주세요', 'warn');
       const r = await AI.ask(`다음 평가 계획서에서 '${it.name}'의 채점 요소 '${c.name}'에 대한 점수 산정 방법을 찾아 학생이 알기 쉽게 정리하라. 계획서에 있는 내용만 쓰고 없으면 빈 값.
 JSON만: {"points":"배점","levels":[{"label":"수준 이름(계획서 표현)","points":"점수","desc":"그 점수를 받는 조건(쉬운 말)"}],"deduct":"감점 규칙","scoring":"이 평가 전체의 점수 계산 방법(기본 점수·미제출·결시 처리 포함)"}
 levels는 점수 높은 순, 계획서의 수준을 빠짐없이.
@@ -525,7 +549,9 @@ function dday(d) {
   return Math.round((a - b) / 864e5);
 }
 function renderExam(g, { big = false, part = null } = {}) {
-  const t = examTarget(), subjRe = new RegExp((g.subject || t.subject).split(/[,\s]+/).filter(Boolean).map(x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') || '^$');
+  const t = examTarget(), nzs = x => String(x || '').replace(/[\s·・.]/g, ''), als = subjAliases(g.subject || t.subject).map(nzs).filter(a => a.length >= 2);
+  // 시간표에서 우리 과목 칸 찾기: 과목 이름 전체로 비교 ('화법과 작문'이 '영어 독해와 작문'에 걸리지 않게)
+  const subjRe = { test: s => String(s || '').split(/\s*\/\s*|\n|,/).some(p => als.includes(nzs(p))) || als.some(a => nzs(s).includes(a)) };
   const wrap = h('div', { class: 'eg ex' + (big ? ' big' : '') });
   const show = k => !part || part === k;
   if (show('cover')) wrap.append(h('div', { class: 'eg-hero' }, h('div', { class: 'eg-hero-ic' }, '🧾'), h('div', null, h('h1', null, g.title || '정기시험 안내'), g.summary ? h('p', null, g.summary) : null)));
@@ -582,13 +608,27 @@ function editExam(g) {
   const f = { title: inp(g.title, '안내 제목'), summary: inp(g.summary, '한 줄 요약'), name: inp(ex.name, '고사 이름 (예: 2학기 2차 정기시험)'), dateText: inp(ex.dateText, '12월 8일(화)', 'w200'), date: h('input', { type: 'date', value: ex.date || '' }), period: inp(ex.period, '2교시', 'w120'), time: inp(ex.time, '09:50~10:40', 'w200'),
     range: area(ex.range, '시험 범위 — 한 줄에 하나'), format: area((ex.format || []).map(x => [x.type, x.count, x.points].filter(Boolean).join(' | ')), '문항 구성 — 유형 | 문항 수 | 배점  (예: 선택형 | 20문항 | 70점)'), materials: area(ex.materials, '준비물 — 한 줄에 하나'), exNotes: area(ex.notes, '이 과목 유의 사항 — 한 줄에 하나'), notes: area(g.notes, '시험 전체 유의 사항 — 한 줄에 하나') };
   const L = (l, el) => h('label', { class: 'stack' }, h('b', null, l), el);
-  modal({ title: '✏️ 정기시험 안내 고치기', wide: true, body: h('div', { class: 'stack' }, L('제목', f.title), L('한 줄 요약', f.summary), L('고사 이름', f.name),
+  const lines = t => t.value.split('\n').map(x => x.trim()).filter(Boolean);
+  /* 지금 칸에 적힌 대로 만든 안내 (저장 전 미리보기에도 씀) */
+  const collect = () => {
+    const ng = JSON.parse(JSON.stringify(g)), ne = ng.exams[0];
+    ng.title = f.title.value; ng.summary = f.summary.value;
+    Object.assign(ne, { name: f.name.value, dateText: f.dateText.value, date: f.date.value, period: f.period.value, time: f.time.value, range: lines(f.range), materials: lines(f.materials), notes: lines(f.exNotes),
+      format: lines(f.format).map(l => { const [type = '', count = '', points = ''] = l.split('|').map(x => x.trim()); return { type, count, points }; }) });
+    ng.notes = lines(f.notes); ng.auto = false;
+    return ng;
+  };
+  /* 👀 오른쪽: 학생 화면 미리보기 (쓰는 대로 바로 바뀜) */
+  const pv = h('div', { class: 'ee-pv-in' });
+  const draw = () => { const y = pv.parentElement ? pv.parentElement.scrollTop : 0; try { pv.replaceChildren(renderExam(collect())); } catch (e) { pv.replaceChildren(h('div', { class: 'warnbox' }, '미리보기를 그리지 못했어요: ' + e.message)); } if (pv.parentElement) pv.parentElement.scrollTop = y; };
+  const redraw = debounce(draw, 150);
+  Object.values(f).forEach(el => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
+  const form = h('div', { class: 'stack ee-form' }, L('제목', f.title), L('한 줄 요약', f.summary), L('고사 이름', f.name),
     h('div', { class: 'row gap wrap' }, L('날짜 (보이는 글자)', f.dateText), L('날짜 (D-day 계산)', f.date), L('교시', f.period), L('시간', f.time)),
-    L('📚 시험 범위', f.range), L('📝 문항 구성', f.format), L('🎒 준비물', f.materials), L('📌 이 과목 유의 사항', f.exNotes), L('⚠️ 시험 전체 유의 사항', f.notes)),
-    actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => {
-      const lines = t => t.value.split('\n').map(x => x.trim()).filter(Boolean);
-      g.title = f.title.value; g.summary = f.summary.value; Object.assign(ex, { name: f.name.value, dateText: f.dateText.value, date: f.date.value, period: f.period.value, time: f.time.value, range: lines(f.range), materials: lines(f.materials), notes: lines(f.exNotes),
-        format: lines(f.format).map(l => { const [type = '', count = '', points = ''] = l.split('|').map(x => x.trim()); return { type, count, points }; }) });
-      g.notes = lines(f.notes); g.auto = false; Store.set('evalguide:written', g); renderEval();
-    } }] });
+    L('📚 시험 범위', f.range), L('📝 문항 구성', f.format), L('🎒 준비물', f.materials), L('📌 이 과목 유의 사항', f.exNotes), L('⚠️ 시험 전체 유의 사항', f.notes));
+  const side = h('div', { class: 'ee-pv' }, h('div', { class: 'ee-pv-head' }, '👀 학생 화면 미리보기', h('small', { class: 'muted' }, ' — 고치는 대로 바로 바뀌어요')), pv);
+  const m = modal({ title: '✏️ 정기시험 안내 고치기', wide: true, body: h('div', { class: 'ee-split' }, form, side),
+    actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { Store.set('evalguide:written', collect()); renderEval(); } }] });
+  m.el.parentElement.classList.add('xwide');
+  draw();
 }

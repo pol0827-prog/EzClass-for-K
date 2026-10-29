@@ -205,7 +205,7 @@ function startStudent(room, pv = null) {
       h('label', null, '모둠'), g, mem, t, c, v, ib, prev, h('p', { class: 'small muted' }, `발표자: ${me.name} (제출한 사람이 발표자로 표시돼요)`), btn);
   }
   function closeForm(a) {
-    const s = h('textarea', { class: 'big-in', rows: 6, maxlength: 2000, placeholder: '오늘 배운 내용 정리' });
+    const s = h('textarea', { class: 'big-in', rows: 6, maxlength: 2000, placeholder: '오늘의 배움일기 — 새로 알게 된 것, 느낀 점, 더 알고 싶은 것' });
     const p = h('textarea', { class: 'big-in', rows: 6, maxlength: 2000, placeholder: '나의 역량 어필 — 구체적인 장면을 써 주세요' });
     const sel = new Set();
     let self = 0;
@@ -216,8 +216,9 @@ function startStudent(room, pv = null) {
       send({ summary: s.value.trim(), appeal: p.value.trim(), comps: [...sel], self }, btn);
     };
     return h('div', { class: 'stu-card' }, h('div', { class: 'tag' }, '🌱 배움마무리'), h('div', { class: 'notice' }, a.notice || RECORD_NOTICE),
-      h('label', null, h('b', null, '① '), a.summary), s, h('label', null, h('b', null, '② '), a.appeal), p,
-      h('label', null, '오늘 내가 발휘한 역량 (여러 개 선택)'), h('div', { class: 'chips' }, (a.comps || COMPETENCIES).map(c => h('button', { class: 'chip', onclick: e => { sel.has(c) ? sel.delete(c) : sel.add(c); e.currentTarget.classList.toggle('on'); } }, c))),
+      h('label', null, h('b', null, '① 📔 배움일기 '), a.summary), h('div', { class: 'small share-note' }, '📢 배움일기는 친구들과 함께 볼 수 있어요'), s,
+      h('label', null, h('b', null, '② 역량 어필 '), a.appeal), h('div', { class: 'small private-note' }, '🔒 역량 어필은 선생님만 봐요'), p,
+      h('label', null, '오늘 내가 발휘한 역량 (여러 개 선택 · 선생님만 봐요)'), h('div', { class: 'chips' }, (a.comps || COMPETENCIES).map(c => h('button', { class: 'chip', onclick: e => { sel.has(c) ? sel.delete(c) : sel.add(c); e.currentTarget.classList.toggle('on'); } }, c))),
       h('label', null, '오늘 수업 나의 참여도'), stars, btn);
   }
   if (pv) { room$ = { kind: pv.kind, act: pv.act, subject: Brand.get().subject, classLabel: S.cls()?.name || '', groups: pv.kind === 'share' ? Groups.map?.() : null }; render(); return; }

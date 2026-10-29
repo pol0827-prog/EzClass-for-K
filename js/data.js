@@ -408,7 +408,7 @@ function openPdfImport() {
     scanBox.replaceChildren(h('div', { class: 'scan-head' }, h('span', { class: 'scan-ico' }, '🖨'), h('div', null, h('b', null, `스캔한 PDF예요 (${n}쪽)`), h('div', { class: 'small muted' }, '종이를 찍은 그림이라 글자를 바로 읽을 수 없어요. 필요한 쪽만 골라 글자를 읽어 옵니다.'))),
       h('div', { class: 'row gap wrap' }, from, h('span', null, '쪽부터'), to, h('span', null, '쪽까지'), tipI('한 번에 10~20쪽씩 나눠 가져오면 빠르고 정확해요. 목차를 보고 이번 수업에 쓸 쪽만 고르세요.')),
       preview, h('div', { class: 'row gap wrap' }, aiOcr, freeOcr, imgOnly),
-      h('div', { class: 'small muted' }, '✨ AI: 정확하고 지문별로 알아서 나눠요 (AI 키 필요) · 🔤 무료: 키 없이 되지만 느리고 오타가 있을 수 있어요'));
+      h('div', { class: 'small muted' }, '✨ AI: 정확하고 지문별로 알아서 나눠요 (AI 필요) · 🔤 무료: 키 없이 되지만 느리고 오타가 있을 수 있어요'));
     status.textContent = '';
     thumbs();
   };

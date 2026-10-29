@@ -2,7 +2,7 @@
 /* =========================================================
    앱 뼈대 · 라우터 · 시작
    ========================================================= */
-const APP_VER = '2026.10.29-d';
+const APP_VER = '2026.10.30-jji';
 const View = { cleanup: [] };
 const ROUTES = {
   home: [renderHome, '🏠', '홈'],
@@ -89,6 +89,7 @@ const Gate = {
           retry ? h('button', { class: 'btn primary lg full', onclick: () => location.reload() }, '↻ 다시 시도') : btn, msg,
           h('p', { class: 'small muted' }, '학생은 이 화면이 아니라, 수업 시간에 선생님이 보여 주는 QR로 응답 화면에 들어오세요.'))));
       };
+      if (window.PREVIEW_MODE) { res(true); return; }   // 화면 미리보기용 (서버 없이)
       if (!FB.ready || !FB.auth) { show('서버에 연결하지 못했어요. 인터넷 연결을 확인하고 다시 시도해 주세요.', true); return; }
       show('로그인 상태를 확인하는 중…');
       let denied = '';
@@ -103,6 +104,7 @@ const Gate = {
 
 (async function boot() {
   await Store.init();
+  try { if (Store.get('local:ai')) Store.del('local:ai'); } catch { }   // 예전에 브라우저에 넣어 둔 AI 키는 지움 (이제 Vercel에만 둠)
   Brand.apply();
   applyWatercolor();
   try { if (window.pdfjsLib) pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch { }

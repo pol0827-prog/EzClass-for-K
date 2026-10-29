@@ -1383,3 +1383,74 @@ body.student #clock{display:none}
 .er-sz:hover{background:rgba(0,0,0,.05)}
 .er-sz.on{border-color:var(--acc,#cf6287);background:#fdeef3}
 .er-sz.on i{background:#f7c6d6;border-color:var(--acc,#cf6287)}
+
+/* 평가 안내: 다시 올리기 칸·끌어다 놓기 */
+.eg-drop.over{outline:3px dashed var(--acc,#cf6287);background:#fdeef3}
+.eg-reup{margin-top:18px;opacity:.9}
+.eg-reup .eg-drop{padding:14px;min-height:0}
+
+/* ✏️ 고치기 + 👀 미리보기 나란히 */
+.modal.xwide{width:min(1400px,97vw);max-height:94vh}
+.ee-split{display:grid;grid-template-columns:minmax(340px,1fr) minmax(420px,1.25fr);gap:18px;align-items:start;min-height:0}
+.ee-form{min-width:0}
+.ee-pv{position:sticky;top:0;max-height:calc(94vh - 150px);overflow:auto;border:1px solid var(--line);border-radius:14px;background:#faf8f3;padding:12px}
+.ee-pv-head{font-weight:800;margin-bottom:8px;position:sticky;top:-12px;background:#faf8f3;padding:6px 0;z-index:1}
+.ee-pv-in{zoom:.82}
+@media (max-width:900px){.ee-split{grid-template-columns:1fr}.ee-pv{position:static;max-height:none}}
+.share-note{color:#1d6b4f;margin:-4px 0 4px}
+.private-note{color:#9a5b12;margin:-4px 0 4px}
+.appeal-tbl .ap-txt{min-width:280px;white-space:pre-wrap}
+
+/* 📖 사용 안내서 */
+.ug{max-width:1080px;display:flex;flex-direction:column;gap:18px}
+.ug-hero{display:flex;gap:16px;align-items:center;background:linear-gradient(135deg,#fdf1f5,#eef6f1);border-radius:18px;padding:20px 22px}
+.ug-hero-ic{font-size:2.6rem}
+.ug-hero h2{margin:0 0 4px}.ug-hero p{margin:0;color:var(--muted)}
+.ug-toc{display:flex;flex-wrap:wrap;gap:6px;position:sticky;top:0;z-index:2;background:var(--bg,#fffdf8);padding:6px 0}
+.ug-sec{background:#fff;border:1px solid var(--line);border-radius:16px;padding:16px 18px;scroll-margin-top:60px}
+.ug-sec h3{display:flex;align-items:center;gap:8px;margin:0 0 12px;font-size:1.2rem}
+.ug-ic{font-size:1.3rem}
+.ug-sec ul{margin:6px 0 0;padding-left:20px;line-height:1.7}
+.ug-grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+.ug-card{background:#faf8f3;border-radius:12px;padding:12px 14px}
+.ug-card p{margin:6px 0 0;font-size:.92rem;line-height:1.6;color:#4b5563}
+.ug-flow{display:flex;align-items:stretch;gap:6px;flex-wrap:wrap;margin-bottom:8px}
+.ug-step{flex:1 1 170px;background:#faf8f3;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:4px;text-align:center;align-items:center}
+.ug-step-ic{font-size:1.8rem}
+.ug-step small{color:var(--muted);line-height:1.5}
+.ug-arrow{align-self:center;color:#c0a98f;font-weight:900}
+.ug-item{border-top:1px dashed var(--line);padding:12px 0}
+.ug-item:first-of-type{border-top:none;padding-top:0}
+.ug-item-h{display:flex;gap:8px;align-items:center;font-size:1.05rem}
+.ug-item p{margin:4px 0 0;color:#374151}
+.ug-how{font-size:.93rem;color:#4b5563}
+.ug-mini{background:#faf8f3;border-radius:12px;padding:10px 12px;display:grid;grid-template-columns:auto 1fr;gap:2px 8px;align-items:center}
+.ug-mini span{grid-row:span 2;font-size:1.4rem}.ug-mini small{color:var(--muted)}
+.ug-faq details{border-bottom:1px solid var(--line);padding:8px 2px}
+.ug-faq summary{cursor:pointer;font-weight:700}
+.ug-faq p{margin:6px 0 2px;color:#4b5563;line-height:1.6}
+.ug-go{display:inline-block;margin-top:10px;padding:6px 12px;border-radius:99px;background:#fdeef3;color:#a33a63;text-decoration:none;font-weight:700;font-size:.9rem}
+
+/* 🌟 칭찬 도장 */
+.memo-tabs{margin-bottom:10px}
+.stamp-page{display:flex;flex-direction:column;gap:14px}
+.stamp-page h2 small{font-size:.9rem;font-weight:500}
+.stamp-type{font-size:1rem}
+.stamp-type.on{background:#fff1c7;border-color:#e2b33f;color:#6b4a07;font-weight:800}
+.stamp-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.stamp-tile{background:#fff;border:1.5px solid var(--line);border-radius:14px;padding:10px 12px;cursor:pointer;display:flex;flex-direction:column;gap:6px;transition:transform .12s,box-shadow .12s,border-color .12s;user-select:none}
+.stamp-tile:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.08);border-color:#e2b33f}
+.stamp-tile:active{transform:scale(.97)}
+.stamp-tile.just{border-color:#e2b33f;box-shadow:0 0 0 4px rgba(242,201,76,.35);animation:stPop .5s ease}
+@keyframes stPop{0%{transform:scale(.94)}60%{transform:scale(1.04)}100%{transform:none}}
+.stamp-tile .st-name{font-size:1.02rem}
+.stamp-tile .stu-note{margin-left:0;align-self:flex-start;max-width:100%}
+.st-icons{font-size:1.05rem;letter-spacing:1px;min-height:1.4em;line-height:1.3;word-break:break-all}
+.st-foot{display:flex;align-items:center;justify-content:space-between}
+.st-cnt{font-weight:800;color:#8a6514;background:#fff4d6;border-radius:99px;padding:1px 10px;font-size:.88rem}
+.st-cnt.zero{color:#9ca3af;background:#f3f4f6}
+.stamp-sum h3{margin:0 0 8px}
+.stamp-recent{max-height:320px;overflow:auto}
+.sr-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:.92rem}
+.sr-ic{font-size:1.15rem}
+.sr-r{color:#4b5563;overflow:hidden;text-overflow:ellipsis}

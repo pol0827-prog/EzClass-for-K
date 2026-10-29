@@ -89,9 +89,13 @@ function readFileAs(file, how = 'dataURL') {
 }
 function pickFile(accept, multiple = false) {
   return new Promise(res => {
-    const i = h('input', { type: 'file', accept, style: { display: 'none' } });
+    document.querySelectorAll('input.pick-file').forEach(x => x.remove());   // 취소하고 남은 것 정리
+    const i = h('input', { type: 'file', accept, class: 'pick-file', style: { position: 'fixed', left: '-9999px', top: '0', width: '1px', height: '1px', opacity: '0' } });
     if (multiple) i.multiple = true;
-    i.onchange = () => { res(multiple ? Array.from(i.files) : i.files[0]); i.remove(); };
+    let done = false;
+    const fin = v => { if (done) return; done = true; res(v); setTimeout(() => i.remove(), 0); };
+    i.onchange = () => fin(multiple ? Array.from(i.files) : i.files[0] || null);
+    i.addEventListener('cancel', () => fin(multiple ? [] : null));
     document.body.append(i); i.click();
   });
 }
@@ -270,6 +274,7 @@ const FB = {
     }
     try { const kr = this.db.collection('rooms').doc('__check').collection('keys').doc('ping'); await kr.set({ num: '0', name: '점검' }); await kr.delete(); add(true, '학생 명단·비밀번호 올리기'); }
     catch (e) { add(false, '학생 명단·비밀번호 올리기', /permission/.test(e.code || '') ? '보안 규칙이 옛 버전이에요. 아래 새 규칙을 복사해 Firebase 콘솔 → Firestore Database → 규칙 탭에 붙여 넣고 [게시]하세요.' : fbWhy(e)); }
+    try { const r = await fetch('/api/ai', { cache: 'no-store' }); const d = r.ok ? await r.json() : null; d && d.ok ? add(true, `AI 연결 (${d.provider === 'anthropic' ? 'Claude' : d.provider === 'openai' ? 'OpenAI' : 'Gemini'} · Vercel 환경 변수)`) : add(false, 'AI 연결', r.ok ? 'Vercel → Settings → Environment Variables에 GEMINI_API_KEY(또는 ANTHROPIC_API_KEY)를 넣고 [Redeploy] 해 주세요. 키를 넣은 뒤 다시 배포해야 적용돼요.' : '저장소에 api/ai.js 파일이 올라갔는지 확인해 주세요.'); } catch { add(false, 'AI 연결', '저장소에 api/ai.js 파일이 올라갔는지 확인해 주세요.'); }
     try { await this.db.collection('rooms').doc('__check').collection('responses').limit(1).get(); add(true, '학생 응답 보기'); }
     catch (e) { add(false, '학생 응답 보기', /permission/.test(e.code || '') ? '위의 이메일 목록 문제와 같은 이유예요.' : fbWhy(e)); }
     return out;
@@ -493,50 +498,36 @@ function latestBy(list, keyFn) {
 
 /* ---------- AI ---------- */
 const AI = {
-  settings() { return Store.get('local:ai', { provider: 'gemini', key: '', model: '' }); },
-  defaultModel(p) { return p === 'anthropic' ? 'claude-sonnet-5-5' : p === 'openai' ? 'gpt-5-mini' : 'gemini-2.5-flash'; },
-  async available() {
-    const s = this.settings(); if (s.key) return true;
-    return !!(await this._sample());
+  /* AI 키는 Vercel 환경 변수에만 저장 — 브라우저는 /api/ai 를 거쳐서만 씀 (키가 화면·기기에 남지 않음) */
+  async _server() {
+    if (this.__srv !== undefined) return this.__srv;
+    if (window.PREVIEW_MODE) return (this.__srv = false);
+    try { const r = await fetch('/api/ai', { cache: 'no-store' }); const d = r.ok ? await r.json() : null; this.__srv = !!(d && d.ok); }
+    catch { this.__srv = false; }
+    return this.__srv;
   },
+  async available() { return (await this._server()) || !!(await this._sample()); },
   async _sample() {
     if (this.__s !== undefined) return this.__s;
     try { this.__s = window.claude && window.claude.use ? await window.claude.use('sample') : null; } catch { this.__s = null; }
     return this.__s;
   },
   async ask(prompt, { system = '', json = true, maxTokens = 12000, onText, images = [] } = {}) {
-    const s = this.settings();
     let text = '';
-    const b64 = d => d.split(',')[1], mt = d => d.slice(5, d.indexOf(';'));
-    if (!s.key) {
+    if (await this._server()) {
+      if (!FB.user) throw new Error('교사 로그인 후 AI를 쓸 수 있어요.');
+      const token = await FB.user.getIdToken();
+      const r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify({ prompt, system, maxTokens, images }) });
+      let d = {}; try { d = await r.json(); } catch { }
+      if (!r.ok) throw new Error(d.error || (r.status === 413 ? '보낼 자료가 너무 커요. 쪽 수를 줄여 주세요' : r.status === 504 ? 'AI 응답이 너무 오래 걸렸어요. 다시 시도해 주세요' : 'AI 서버 오류 (' + r.status + ')'));
+      text = d.text || '';
+      onText && onText(text);
+    } else {
       const sample = await this._sample();
-      if (!sample) throw new Error('AI 키가 없습니다. 설정 → AI에서 키를 넣어 주세요.');
+      if (!sample) throw new Error('AI를 쓸 수 없어요. Vercel 환경 변수에 AI 키(GEMINI_API_KEY 등)를 넣고 다시 배포해 주세요.');
       const blobs = images.length ? await Promise.all(images.map(d => fetch(d).then(r => r.blob()))) : undefined;
       const r = await sample((system ? system + '\n\n' : '') + prompt, { modelTier: 'complex', ...(blobs ? { images: blobs } : {}), onText: onText ? ({ text }) => onText(text) : undefined });
       text = r.text;
-    } else if (s.provider === 'anthropic') {
-      const r = await fetch('https://api.anthropic.com/v1/messages', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json', 'x-api-key': s.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-        body: JSON.stringify({ model: s.model || this.defaultModel('anthropic'), max_tokens: maxTokens, system: system || undefined, messages: [{ role: 'user', content: images.length ? [...images.map(d => ({ type: 'image', source: { type: 'base64', media_type: mt(d), data: b64(d) } })), { type: 'text', text: prompt }] : prompt }] })
-      });
-      const d = await r.json(); if (!r.ok) throw new Error(d.error?.message || r.statusText);
-      text = d.content.filter(c => c.type === 'text').map(c => c.text).join('');
-    } else if (s.provider === 'openai') {
-      const r = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + s.key },
-        body: JSON.stringify({ model: s.model || this.defaultModel('openai'), messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: images.length ? [...images.map(d => ({ type: 'image_url', image_url: { url: d } })), { type: 'text', text: prompt }] : prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) })
-      });
-      const d = await r.json(); if (!r.ok) throw new Error(d.error?.message || r.statusText);
-      text = d.choices[0].message.content;
-    } else {
-      const model = s.model || this.defaultModel('gemini');
-      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(s.key)}`, {
-        method: 'POST', headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ contents: [{ role: 'user', parts: [...images.map(d => ({ inlineData: { mimeType: mt(d), data: b64(d) } })), { text: prompt }] }], ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), generationConfig: { maxOutputTokens: Math.max(maxTokens, 16000), ...(json ? { responseMimeType: 'application/json' } : {}) } })
-      });
-      const d = await r.json(); if (!r.ok) throw new Error(d.error?.message || r.statusText);
-      text = (d.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
     }
     return json ? this.parseJSON(text) : text;
   },

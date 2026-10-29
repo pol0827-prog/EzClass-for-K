@@ -218,7 +218,8 @@ function statsView(act, list) {
 }
 /* ---------- 응답 벽 (배움열기·배움마무리 공용): 공유 · 👍 교사 추천 · ✨ AI 추천 ---------- */
 const WallState = { filter: 'all', hide: false };
-const respText = r => r.kind === 'close' ? `[정리] ${r.summary || ''}\n[역량 어필] ${r.appeal || ''}` : ansText(r.answer);
+// 배움마무리: 함께 보는 화면·AI 추천에는 배움일기만 (역량 어필은 선생님만)
+const respText = r => r.kind === 'close' ? (r.summary || '') : ansText(r.answer);
 function wallBox(list, room, q, redraw) {
   const nT = list.filter(r => r.star).length, nA = list.filter(r => r.ai).length, nG = list.filter(r => r.gp).length;
   const f = (k, l) => h('button', { class: 'btn sm' + (WallState.filter === k ? ' on' : ''), onclick: () => { WallState.filter = k; redraw(); } }, l);
@@ -230,8 +231,7 @@ function wallBox(list, room, q, redraw) {
       r.gp ? h('span', { class: 'badge-gp' }, '🏆 그랑프리') : null,
       r.ai ? h('span', { class: 'badge-ai', title: r.aiWhy || '' }, '✨ AI') : null,
       r.star ? h('span', { class: 'badge-star' }, '👍 추천') : null),
-    r.kind === 'close' ? h('div', { class: 'wc-body' }, h('div', { class: 'wc-sec' }, h('b', null, '정리'), r.summary || ''), h('div', { class: 'wc-sec' }, h('b', null, '역량 어필'), r.appeal || ''),
-      (r.comps || []).length ? h('div', { class: 'tags' }, r.comps.map(c => h('span', { class: 'tag' }, c))) : null) : h('div', { class: 'wc-body' }, ansText(r.answer)),
+    r.kind === 'close' ? h('div', { class: 'wc-body' }, h('div', { class: 'wc-sec' }, h('b', null, '📔 배움일기'), r.summary || '')) : h('div', { class: 'wc-body' }, ansText(r.answer)),
     r.ai && r.aiWhy ? h('div', { class: 'wc-why' }, '✨ ', r.aiWhy) : null,
     h('div', { class: 'wc-act' },
       h('button', { class: 'like' + (r.star ? ' on' : ''), title: '잘한 응답으로 추천', onclick: e => { e.stopPropagation(); Live.updateResp(room, r.id, { star: !r.star }); } }, r.star ? '👍 추천함' : '👍 추천'),
@@ -253,7 +253,7 @@ function spotlight(list, i, q, room = null, all = list) {
     st.replaceChildren(h('div', { class: 'pres-top' }, h('span', { class: 'muted' }, q || ''), h('span', { class: 'grow' }), h('span', null, `${i + 1} / ${list.length}`), h('button', { class: 'btn', onclick: close }, '✕')),
       h('div', { class: 'spot-card' + (r.star ? ' star' : '') + (r.gp ? ' gp' : '') },
         h('div', { class: 'spot-name' }, WallState.hide ? '🙂' : `${r.num} ${r.name}`, r.gp ? h('span', { class: 'badge-gp', style: { cursor: 'pointer' }, title: '상패 보기', onclick: () => GP.ceremony(r) }, '🏆 그랑프리') : null, r.star ? h('span', { class: 'badge-star' }, '👍 선생님 추천') : null, r.ai ? h('span', { class: 'badge-ai' }, '✨ AI 추천') : null),
-        r.kind === 'close' ? [h('div', { class: 'spot-sec' }, h('b', null, '정리'), h('p', null, r.summary || '')), h('div', { class: 'spot-sec' }, h('b', null, '역량 어필'), h('p', null, r.appeal || ''))] : h('div', { class: 'spot-text' }, ansText(r.answer)),
+        r.kind === 'close' ? h('div', { class: 'spot-sec' }, h('b', null, '📔 배움일기'), h('p', null, r.summary || '')) : h('div', { class: 'spot-text' }, ansText(r.answer)),
         r.ai && r.aiWhy ? h('div', { class: 'wc-why big' }, '✨ ', r.aiWhy) : null),
       h('div', { class: 'pres-nav' }, h('button', { class: 'btn lg', onclick: () => { if (i > 0) { i--; draw(); } } }, '◀'),
         room ? h('button', { class: 'btn lg gp-btn' + (r.gp ? ' on' : ''), title: '그랑프리 주기/취소 (G키)', onclick: giveGP }, r.gp ? '🏆 그랑프리 수상' : '🏆 그랑프리 주기') : null,
@@ -414,9 +414,9 @@ function presentShare(act, subs, i) {
 /* ---------- ④ 배움마무리 ---------- */
 const CloseState = { unsub: null, date: null };
 function closeAct() {
-  const cfg = Store.get('closecfg', { summary: '오늘 배운 내용을 정리해 보세요. (핵심 개념·근거 찾기 중심으로)', appeal: '오늘 수업에서 내가 보여 준 역량을 구체적인 장면과 함께 어필해 보세요. 예) 모둠에서 3번 선지의 함정을 찾아 근거 문장을 제시함' });
+  const cfg = Store.get('closecfg', { summary: '오늘의 배움일기를 써 보세요. (새로 알게 된 것 · 느낀 점 · 더 알고 싶은 것)', appeal: '오늘 수업에서 내가 보여 준 역량을 구체적인 장면과 함께 어필해 보세요. 예) 모둠에서 3번 선지의 함정을 찾아 근거 문장을 제시함' });
   const d = CloseState.date || todayStr();
-  return { id: `close_${S.lessonKey()}_${d}`, title: '오늘의 배움 정리', date: d, lesson: S.lesson()?.title || '', ...cfg, comps: Store.get('comps', COMPETENCIES), notice: RECORD_NOTICE };
+  return { id: `close_${S.lessonKey()}_${d}`, title: '오늘의 배움일기', date: d, lesson: S.lesson()?.title || '', ...cfg, comps: Store.get('comps', COMPETENCIES), notice: RECORD_NOTICE };
 }
 function renderClose() {
   const root = $('#view'); root.replaceChildren();
@@ -434,27 +434,39 @@ function renderClose() {
       h('button', { class: 'btn', onclick: editCloseCfg }, '✎ 질문 수정'),
       h('button', { class: 'btn', onclick: exportExcel }, '⬇️ 학생부용 엑셀')),
     h('div', { class: 'notice' }, RECORD_NOTICE),
-    h('div', { class: 'grid2 close-q' }, h('div', { class: 'card soft' }, h('b', null, '① 정리 '), act.summary), h('div', { class: 'card soft' }, h('b', null, '② 역량 어필 '), act.appeal)),
-    h('div', { class: 'row gap' }, count, h('span', { class: 'grow' }), compBox), tbl));
+    h('div', { class: 'grid2 close-q' }, h('div', { class: 'card soft' }, h('b', null, '① 배움일기 '), h('span', { class: 'tag' }, '📢 함께 봐요'), ' ', act.summary), h('div', { class: 'card soft' }, h('b', null, '② 역량 어필 '), h('span', { class: 'tag' }, '🔒 선생님만'), ' ', act.appeal)),
+    h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }), compBox,
+      h('button', { class: 'btn', title: '역량 어필·고른 역량·참여도는 함께 보는 화면에 나오지 않아요. 여기서 선생님만 봅니다', onclick: () => Lock.guard(() => appealView(lastLatest, act), '🔒 역량 어필 보기 — 비밀번호') }, '🔒 역량 어필 보기')), tbl));
   CloseState.unsub && CloseState.unsub();
-  let lastList = [];
+  let lastList = [], lastLatest = [];
   const draw = list => {
     lastList = list;
     const latest = latestBy(list, r => r.num + '|' + r.name).sort((a, b) => (+a.num || 0) - (+b.num || 0));
+    lastLatest = latest;
     respondentBar(latest, count);
     const cf = new Map(); latest.forEach(r => (r.comps || []).forEach(c => cf.set(c, (cf.get(c) || 0) + 1)));
     compBox.replaceChildren(...[...cf.entries()].sort((a, b) => b[1] - a[1]).map(([c, n]) => h('span', { class: 'tag' }, `${c} ${n}`)));
-    tbl.replaceChildren(wallBox(latest, room, '오늘의 배움 정리 · 역량 어필', () => draw(lastList)));
+    tbl.replaceChildren(wallBox(latest, room, '📔 오늘의 배움일기', () => draw(lastList)));
   };
   if (room) CloseState.unsub = Live.watchResps(room, act.id, draw); else draw([]);
   View.cleanup.push(() => CloseState.unsub && CloseState.unsub());
+}
+/* 🔒 역량 어필 모아 보기 — 함께 보는 화면에는 나오지 않음 */
+function appealView(list, act) {
+  const rows = (list || []).filter(r => r.appeal || (r.comps || []).length || r.self);
+  const body = rows.length ? h('div', { class: 'table-wrap' }, h('table', { class: 'grid-tbl appeal-tbl' },
+    h('thead', null, h('tr', null, h('th', null, '번호'), h('th', null, '이름'), h('th', null, '역량 어필'), h('th', null, '고른 역량'), h('th', null, '참여도'), h('th', null, ''))),
+    h('tbody', null, rows.map(r => h('tr', null, h('td', null, r.num), h('td', null, r.name, stuNote(S.cls(), r.num) ? h('span', { class: 'stu-note' }, stuNote(S.cls(), r.num)) : null), h('td', { class: 'ap-txt' }, r.appeal || ''),
+      h('td', null, (r.comps || []).map(c => h('span', { class: 'tag' }, c))), h('td', null, r.self ? '★'.repeat(r.self) + '☆'.repeat(5 - r.self) : ''),
+      h('td', null, h('button', { class: 'btn sm', title: '관찰 메모로 옮기기', onclick: () => addMemoQuick(r.num, r.name, `[마무리 ${r.date}] ${r.appeal || ''}${(r.comps || []).length ? ' (역량: ' + r.comps.join(', ') + ')' : ''}`) }, '📝'))))))) : emptyPic('🔒', '아직 받은 역량 어필이 없어요');
+  modal({ title: `🔒 역량 어필 — ${act.date} (선생님만)`, wide: true, body: h('div', { class: 'stack' }, h('p', { class: 'small muted' }, '학생들과 함께 보는 화면에는 나오지 않아요. 📝로 관찰 메모에 옮길 수 있어요.'), body) });
 }
 function editCloseCfg() {
   const a = closeAct();
   const s = h('textarea', { class: 'full', rows: 3 }); s.value = a.summary;
   const p = h('textarea', { class: 'full', rows: 3 }); p.value = a.appeal;
   const c = h('textarea', { class: 'full', rows: 3 }); c.value = a.comps.join(', ');
-  modal({ title: '배움마무리 질문', wide: true, body: h('div', { class: 'stack' }, h('label', null, '① 정리 질문'), s, h('label', null, '② 역량 어필 질문'), p, h('label', null, '고를 수 있는 역량 (쉼표로 구분)'), c),
+  modal({ title: '배움마무리 질문', wide: true, body: h('div', { class: 'stack' }, h('label', null, '① 배움일기 질문 (📢 함께 보는 화면에 나와요)'), s, h('label', null, '② 역량 어필 질문 (🔒 선생님만 봐요)'), p, h('label', null, '고를 수 있는 역량 (쉼표로 구분)'), c),
     actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { Store.set('closecfg', { summary: s.value, appeal: p.value }); Store.set('comps', c.value.split(',').map(x => x.trim()).filter(Boolean)); renderClose(); } }] });
 }
 
@@ -495,7 +507,7 @@ const GP = {
     catch (e) { console.warn('그랑프리 알림 실패', e); }
   },
   excerpt(r) {
-    const t = r.kind === 'close' ? (r.appeal || r.summary || '') : r.kind === 'share' ? (r.title || r.content || '') : ansText(r.answer);
+    const t = r.kind === 'close' ? (r.summary || '') : r.kind === 'share' ? (r.title || r.content || '') : ansText(r.answer);
     return String(t || '').replace(/\s+/g, ' ').trim();
   },
   info(r) {
