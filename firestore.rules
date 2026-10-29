@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ▼ 이 도구를 쓸 선생님들의 구글 계정 이메일 (동료 교사 추가 가능)
+    function isTeacher() {
+      return request.auth != null && request.auth.token.email in [
+        'pol082753@gmail.com'
+      ];
+    }
+    match /rooms/{room} {
+      allow read: if true;                 // 학생 화면이 현재 활동을 읽음
+      allow write: if isTeacher();
+      match /responses/{id} {
+        allow create: if request.resource.size() < 900000
+                      && request.resource.data.act is string;   // 학생은 제출만
+        allow read, update, delete: if isTeacher();             // 응답 열람은 교사만
+      }
+    }
+    match /users/{uid}/{doc=**} {          // 선생님 개인 자료(지문·칠판·출결 등) 동기화
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+    }
+  }
+}
