@@ -160,31 +160,27 @@ function renderGradeFiles(root, cls) {
 }
 
 /* =========================================================
-   🚨 미이수 예측 — 정기시험: 점수 × 반영비율 / 수행: 영역 점수 ÷ 만점 × 반영비율 → 100점 만점
+   🚨 미이수 예측 — 정기시험: 점수 × 반영비율 / 수행: 원점수 합 → 100점 만점
    ========================================================= */
 const keySort = (a, b) => { const p = k => k.startsWith('#') ? [999, +k.slice(1)] : k.split('/').map(Number); const [ab, an] = p(a), [bb, bn] = p(b); return (ab - bb) || (an - bn); };
 function predictData(cid) {
   const d = GradeFiles.get(cid);
   const cfg = Store.get('gfpredict:' + cid, { ratio: {}, cut: 40 });
-  cfg.pratio ||= {};
   const exams = Object.keys(d.written || {});
   exams.forEach((e, i) => { if (cfg.ratio[e] == null) cfg.ratio[e] = exams.length === 1 ? 30 : i < 2 ? 30 : 20; });
   const perfItems = d.perf?.items || [];
-  // 수행 영역 반영 비율 — 처음엔 만점 그대로(원점수 = 반영 점수), 고치면 만점 대비로 환산
-  perfItems.forEach(it => { if (cfg.pratio[it.label] == null) cfg.pratio[it.label] = it.max; });
-  const pScale = it => it.max ? (+cfg.pratio[it.label] || 0) / it.max : 0;
-  const perfMax = perfItems.reduce((a, it) => a + (+cfg.pratio[it.label] || 0), 0);
+  const perfMax = perfItems.reduce((a, it) => a + it.max, 0);
   const wMax = exams.reduce((a, e) => a + (+cfg.ratio[e] || 0), 0);
   const keys = [...new Set([...exams.flatMap(e => d.written[e].rows.map(r => r.key)), ...(d.perf?.rows || []).map(r => r.key)])].sort(keySort);
   const rows = keys.map(k => {
     const w = exams.map(e => { const r = d.written[e].rows.find(x => x.key === k); const sc = r ? toNum(r.score) : null; return { e, raw: sc, conv: sc == null ? null : sc * (+cfg.ratio[e] || 0) / 100, absent: r?.absent || '' }; });
     const pr = d.perf?.rows.find(x => x.key === k);
-    const perf = pr ? pr.vals.reduce((a, v, i) => a + (toNum(v) || 0) * (perfItems[i] ? pScale(perfItems[i]) : 1), 0) : null;
+    const perf = pr ? pr.vals.reduce((a, v) => a + (toNum(v) || 0), 0) : null;
     const total = w.reduce((a, x) => a + (x.conv || 0), 0) + (perf || 0);
     const missing = w.filter(x => x.raw == null).length + (pr ? 0 : perfItems.length ? 1 : 0);
     return { k, w, perf, total: Math.round(total * 100) / 100, missing, risk: total < (cfg.cut || 40) };
   });
-  return { d, cfg, exams, perfItems, perfMax, wMax, rows, pScale };
+  return { d, cfg, exams, perfItems, perfMax, wMax, rows };
 }
 function renderPredict(root, cls) {
   const P = predictData(cls.id), { cfg, exams, perfMax, wMax } = P;
@@ -202,13 +198,12 @@ function renderPredict(root, cls) {
   const setup = h('div', { class: 'pd-setup' },
     h('div', { class: 'pd-formula' },
       exams.map(e => h('div', { class: 'pd-f w' }, h('small', null, '📝 정기시험'), h('b', null, e), h('div', { class: 'row gap' }, '점수 ×', h('input', { type: 'number', class: 'w60', value: cfg.ratio[e], min: 0, max: 100, onchange: ev => { cfg.ratio[e] = +ev.target.value; save(); renderGrades(); } }), '%'))).flatMap((x, i) => i ? [h('span', { class: 'pd-plus' }, '+'), x] : [x]),
-      P.perfItems.map((it, i) => [exams.length || i ? h('span', { class: 'pd-plus' }, '+') : null, h('div', { class: 'pd-f p' }, h('small', null, '🎯 수행'), h('b', { title: it.label }, it.label.length > 16 ? it.label.slice(0, 16) + '…' : it.label),
-        h('div', { class: 'row gap' }, `점수/${it.max} ×`, h('input', { type: 'number', class: 'w60', value: cfg.pratio[it.label], min: 0, max: 100, onchange: ev => { cfg.pratio[it.label] = +ev.target.value; save(); renderGrades(); } }), '%'))]),
+      P.perfItems.length ? [exams.length ? h('span', { class: 'pd-plus' }, '+') : null, h('div', { class: 'pd-f p' }, h('small', null, '🎯 수행'), h('b', null, `원점수 합 (${P.perfItems.length}영역)`), h('div', null, `만점 ${perfMax}점`))] : null,
       h('span', { class: 'pd-plus' }, '='), h('div', { class: 'pd-f t' + (sum === 100 ? '' : ' bad') }, h('small', null, '합계'), h('b', null, `${sum}점 만점`), sum === 100 ? h('div', null, '✔ 100점') : h('div', null, '⚠ 100이 아니에요'))),
     h('div', { class: 'row gap wrap small' }, '미이수 기준', h('input', { type: 'number', class: 'w60', value: cfg.cut || 40, onchange: e => { cfg.cut = +e.target.value; save(); renderGrades(); } }), '점 미만',
-      h('span', { class: 'muted' }, '· 정기시험·수행평가 반영 비율을 평가 계획서대로 고쳐 주세요. 수행은 영역 점수를 만점 대비로 환산해 반영 비율만큼 더합니다 (만점 = 반영 비율이면 원점수 그대로).')));
+      h('span', { class: 'muted' }, '· 정기시험 반영 비율은 학업성적관리규정대로 고쳐 주세요. 수행 원점수는 반영 점수 그대로 더합니다.')));
   const tbl = h('table', { class: 'grid-tbl pd-tbl' },
-    h('thead', null, h('tr', null, h('th', null, '반/번호'), exams.map(e => h('th', null, e, h('br'), h('small', null, `원점수 → ${cfg.ratio[e]}%`))), P.perfItems.length ? h('th', null, '수행 환산', h('br'), h('small', null, `/${perfMax}%`)) : null, h('th', null, '합계', h('br'), h('small', null, '/100')), h('th', null, '성취도'), h('th', null, '미이수 예측'))),
+    h('thead', null, h('tr', null, h('th', null, '반/번호'), exams.map(e => h('th', null, e, h('br'), h('small', null, `원점수 → ${cfg.ratio[e]}%`))), P.perfItems.length ? h('th', null, '수행', h('br'), h('small', null, `/${perfMax}`)) : null, h('th', null, '합계', h('br'), h('small', null, '/100')), h('th', null, '성취도'), h('th', null, '미이수 예측'))),
     h('tbody', null, P.rows.filter(r => !onlyRisk || r.risk).map(r => h('tr', { class: r.risk ? 'risk2' : '' }, h('td', null, h('b', null, r.k)),
       r.w.map(x => h('td', null, x.raw == null ? h('span', { class: 'muted' }, x.absent || '—') : [h('b', null, fmt(x.conv)), h('small', { class: 'muted' }, ` (${x.raw})`)])),
       P.perfItems.length ? h('td', null, fmt(r.perf)) : null,
@@ -220,7 +215,7 @@ function renderPredict(root, cls) {
     h('div', { class: 'row gap wrap' }, h('h3', { class: 'grow' }, '🚨 100점 만점 환산'),
       h('span', { class: 'tag bad' }, `미이수 우려 ${risky.length}명`), h('span', { class: 'muted small' }, `총 ${P.rows.length}명`),
       h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: onlyRisk, onchange: e => { Store.set('local:pdOnly', e.target.checked); renderGrades(); } }), ` ${cfg.cut || 40}점 미만만 보기`),
-      h('button', { class: 'btn sm', onclick: () => { const ws = XLSX.utils.aoa_to_sheet([['반/번호', ...exams.map(e => `${e} 환산(${cfg.ratio[e]}%)`), ...(P.perfItems.length ? [`수행 환산 /${perfMax}`] : []), '합계/100', '성취도', '미이수 예측'], ...P.rows.map(r => [r.k, ...r.w.map(x => x.conv ?? ''), ...(P.perfItems.length ? [r.perf ?? ''] : []), r.total, r.lv, r.risk ? '미이수 우려' : ''])]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '미이수 예측'); saveWorkbook(wb, `${cls.name}_미이수예측_${todayStr()}.xlsx`); } }, '⬇️ 엑셀')),
+      h('button', { class: 'btn sm', onclick: () => { const ws = XLSX.utils.aoa_to_sheet([['반/번호', ...exams.map(e => `${e} 환산(${cfg.ratio[e]}%)`), ...(P.perfItems.length ? [`수행 /${perfMax}`] : []), '합계/100', '성취도', '미이수 예측'], ...P.rows.map(r => [r.k, ...r.w.map(x => x.conv ?? ''), ...(P.perfItems.length ? [r.perf ?? ''] : []), r.total, r.lv, r.risk ? '미이수 우려' : ''])]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '미이수 예측'); saveWorkbook(wb, `${cls.name}_미이수예측_${todayStr()}.xlsx`); } }, '⬇️ 엑셀')),
     risky.length ? h('div', { class: 'pd-alert' }, h('b', null, `🔔 ${cfg.cut || 40}점 미만 ${risky.length}명`), h('div', { class: 'chips' }, risky.map(r => h('span', { class: 'chip bad' }, `${r.k} · ${fmt(r.total)}점`)))) : h('div', { class: 'pd-ok' }, `✔ ${cfg.cut || 40}점 미만 학생이 없습니다`),
     h('div', { class: 'table-wrap' }, tbl),
     tipI('아직 치르지 않은 평가는 0점으로 셈하지 않고 빠진 채로 더합니다 — "미반영"이 있는 학생은 앞으로 점수가 오를 수 있어요.'));
@@ -260,8 +255,7 @@ function perfCut(c, it) {
 function cutParts(cfg, P) {
   const c = cutCfg(cfg, P);
   const w = Object.fromEntries(LV.map(l => [l, r2(P.exams.reduce((a, e) => a + (+(c.wMode === 'est' ? examCut(c.exams[e]) : FIXED)[l] || 0) * (+cfg.ratio[e] || 0) / 100, 0))]));
-  const sc = it => P.pScale ? P.pScale(it) : 1;
-  const p = Object.fromEntries(LV.map(l => [l, r2(P.perfItems.reduce((a, it) => a + (c.pMode === 'est' ? (+perfCut(c, it)?.[l] || 0) : it.max * FIXED[l] / 100) * sc(it), 0))]));
+  const p = Object.fromEntries(LV.map(l => [l, r2(P.perfItems.reduce((a, it) => a + (c.pMode === 'est' ? (+perfCut(c, it)?.[l] || 0) : it.max * FIXED[l] / 100), 0))]));
   return { w, p };
 }
 function subjectCuts(cfg, P) { const { w, p } = cutParts(cfg, P); return Object.fromEntries(LV.map(l => [l, r2(w[l] + p[l])])); }
@@ -310,6 +304,6 @@ function cutPanel(cls, P, cfg, save) {
     summary,
     open ? h('div', { class: 'cut-sides' },
       side('📝', '정기시험', 'wMode', P.exams.length, wBody, '문항마다 "각 성취수준의 최소 능력을 갖춘 학생이 맞힐 확률(%)"을 넣으면 배점×확률의 합이 그 고사의 분할점수(원점수)가 됩니다. 과목에는 반영 비율만큼 들어갑니다.'),
-      side('🎯', '수행평가', 'pMode', P.perfItems.length, pBody, '채점 요소마다 "각 성취수준의 최소 능력을 갖춘 학생이 받을 점수"를 넣으면 그 합이 영역 분할점수가 됩니다. 수행 점수는 영역 반영 비율만큼 환산해 더합니다.')) : null,
-    h('small', { class: 'muted' }, '과목 분할점수 = 정기시험 분할점수 × 반영비율 + 수행 영역 분할점수 × (반영비율÷만점) · 학업성적관리위원회에서 정한 값을 넣으세요.'));
+      side('🎯', '수행평가', 'pMode', P.perfItems.length, pBody, '채점 요소마다 "각 성취수준의 최소 능력을 갖춘 학생이 받을 점수"를 넣으면 그 합이 영역 분할점수가 됩니다. 수행 원점수는 반영 점수 그대로 더합니다.')) : null,
+    h('small', { class: 'muted' }, '과목 분할점수 = 정기시험 분할점수 × 반영비율 + 수행 영역 분할점수 합 · 학업성적관리위원회에서 정한 값을 넣으세요.'));
 }

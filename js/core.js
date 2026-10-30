@@ -89,13 +89,9 @@ function readFileAs(file, how = 'dataURL') {
 }
 function pickFile(accept, multiple = false) {
   return new Promise(res => {
-    document.querySelectorAll('input.pick-file').forEach(x => x.remove());   // 취소하고 남은 것 정리
-    const i = h('input', { type: 'file', accept, class: 'pick-file', style: { position: 'fixed', left: '-9999px', top: '0', width: '1px', height: '1px', opacity: '0' } });
+    const i = h('input', { type: 'file', accept, style: { display: 'none' } });
     if (multiple) i.multiple = true;
-    let done = false;
-    const fin = v => { if (done) return; done = true; res(v); setTimeout(() => i.remove(), 0); };
-    i.onchange = () => fin(multiple ? Array.from(i.files) : i.files[0] || null);
-    i.addEventListener('cancel', () => fin(multiple ? [] : null));
+    i.onchange = () => { res(multiple ? Array.from(i.files) : i.files[0]); i.remove(); };
     document.body.append(i); i.click();
   });
 }
@@ -239,8 +235,8 @@ const FB = {
       if (firebase.auth) {
         this.auth = firebase.auth();
         this.auth.onAuthStateChanged(async u => {
-          this.user = u; emit('auth', u); if (u) this.warnIfNotTeacher();
-          if (u && this.isTeacherEmail(u.email)) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패 — ' + fbWhy(e), 'err', 7000); } }
+          this.user = u; emit('auth', u);
+          if (u) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패: 규칙(rules)과 로그인 계정을 확인하세요', 'err', 5000); } }
         });
       }
       return true;
@@ -248,70 +244,12 @@ const FB = {
   },
   async signIn() {
     if (!this.auth) return toast('Firebase가 설정되지 않았습니다', 'err');
-    const pr = new firebase.auth.GoogleAuthProvider();
-    pr.setCustomParameters(window.LOGIN_EMAIL ? { prompt: 'select_account', login_hint: window.LOGIN_EMAIL } : { prompt: 'select_account' });
-    try { const r = await this.auth.signInWithPopup(pr); if (r && r.user) this.user = r.user; this.warnIfNotTeacher(); return this.user; }
-    catch (e) { console.error(e); toast('로그인 실패: ' + fbWhy(e), 'err', 7000); return null; }
-  },
-  /* 🩺 연결 점검: 로그인 → 내 자료 저장 → 학생 화면 열기 → 응답 보기 순서로 실제로 시험 */
-  async check() {
-    const out = [], add = (ok, t, fix = '') => out.push({ ok, t, fix });
-    if (!this.ready) { add(false, '서버 연결', 'config.js의 Firebase 값과 인터넷 연결을 확인하세요.'); return out; }
-    add(true, `서버 연결 (${this.cfg.projectId})`);
-    if (!this.user) { add(false, '교사 로그인', '아래 [교사 로그인 (구글)] 버튼을 눌러 로그인한 뒤 다시 점검하세요.'); return out; }
-    add(true, `교사 로그인 (${this.user.email})`);
-    let usersOK = true;
-    try { await this.db.collection('users').doc(this.user.uid).collection('check').doc('ping').set({ t: Date.now() }); add(true, '내 자료 클라우드 저장 (지문·칠판·출결 등)'); }
-    catch (e) {
-      usersOK = false;
-      add(false, '내 자료 클라우드 저장', /permission/.test(e.code || '') ? '보안 규칙이 아직 게시되지 않은 것 같아요. 아래 규칙을 복사해 Firebase 콘솔 → Firestore Database → 규칙 탭에 붙여 넣고 [게시]하세요.' : fbWhy(e));
-    }
-    try { const ref = this.db.collection('rooms').doc('__check'); await ref.set({ kind: 'none', t: Date.now() }); await ref.delete(); add(true, '학생 화면에 활동 열기'); }
-    catch (e) {
-      add(false, '학생 화면에 활동 열기', /permission/.test(e.code || '')
-        ? (usersOK ? `보안 규칙의 선생님 이메일 목록에 지금 계정(${this.user.email})이 없어요. 규칙의 [ ] 안 이메일을 이 계정으로 바꾸거나 한 줄 추가한 뒤 [게시]하세요. (다른 구글 계정으로 로그인했다면 로그아웃 후 목록에 있는 계정으로 다시 로그인해도 돼요.)` : '위 항목과 같은 이유예요 — 규칙을 게시하면 함께 해결돼요.')
-        : fbWhy(e));
-    }
-    try { const kr = this.db.collection('rooms').doc('__check').collection('keys').doc('ping'); await kr.set({ num: '0', name: '점검' }); await kr.delete(); add(true, '학생 명단·비밀번호 올리기'); }
-    catch (e) { add(false, '학생 명단·비밀번호 올리기', /permission/.test(e.code || '') ? '보안 규칙이 옛 버전이에요. 아래 새 규칙을 복사해 Firebase 콘솔 → Firestore Database → 규칙 탭에 붙여 넣고 [게시]하세요.' : fbWhy(e)); }
-    try { const r = await fetch('/api/ai', { cache: 'no-store' }); const d = r.ok ? await r.json() : null; d && d.ok ? add(true, `AI 연결 (${d.provider === 'anthropic' ? 'Claude' : d.provider === 'openai' ? 'OpenAI' : 'Gemini'} · Vercel 환경 변수)`) : add(false, 'AI 연결', r.ok ? 'Vercel → Settings → Environment Variables에 GEMINI_API_KEY(또는 ANTHROPIC_API_KEY)를 넣고 [Redeploy] 해 주세요. 키를 넣은 뒤 다시 배포해야 적용돼요.' : '저장소에 api/ai.js 파일이 올라갔는지 확인해 주세요.'); } catch { add(false, 'AI 연결', '저장소에 api/ai.js 파일이 올라갔는지 확인해 주세요.'); }
-    try { await this.db.collection('rooms').doc('__check').collection('responses').limit(1).get(); add(true, '학생 응답 보기'); }
-    catch (e) { add(false, '학생 응답 보기', /permission/.test(e.code || '') ? '위의 이메일 목록 문제와 같은 이유예요.' : fbWhy(e)); }
-    return out;
+    try { await this.auth.signInWithPopup(new firebase.auth.GoogleAuthProvider()); }
+    catch (e) { console.error(e); toast('로그인 실패: ' + (e.code || e.message) + ' (Firebase 콘솔의 승인된 도메인을 확인하세요)', 'err', 6000); }
   },
   signOut() { this.auth && this.auth.signOut(); },
-  /* 로그인한 계정이 선생님 목록(config.js TEACHER_EMAILS)에 있는지 */
-  isTeacherEmail(email) { const L = window.TEACHER_EMAILS; return !!email && (!L || !L.length || L.map(x => x.toLowerCase()).includes(String(email).toLowerCase())); },
-  isTeacher() { return !!this.user && this.isTeacherEmail(this.user.email); },
-  warnIfNotTeacher() { if (this.user && !this.isTeacher()) toast(`지금 계정(${this.user.email})은 선생님 목록에 없어요. ${window.LOGIN_EMAIL || '등록된 계정'}으로 다시 로그인해 주세요.`, 'warn', 8000); },
-  /* 목록에 있는 계정으로 로그인된 상태를 보장 (아니면 로그인 창을 띄움) */
-  async ensureTeacher() {
-    if (!this.ready) return true;
-    if (this.user && this.isTeacher()) return true;
-    if (this.user) { toast(`${this.user.email} 계정으로는 열 수 없어요 — ${window.LOGIN_EMAIL || '선생님 계정'}으로 바꿔 로그인합니다`, 'warn', 5000); await this.auth.signOut(); this.user = null; }
-    else toast('교사 로그인이 필요해요 — 로그인 창을 엽니다', 'warn', 4000);
-    const u = await this.signIn();
-    return !!(u && this.isTeacher());
-  },
   studentParam() { return this.ready && this.source !== 'config.js' ? '&c=' + cfgToParam(this.cfg) : ''; }
 };
-
-/* Firebase 오류를 선생님이 알아듣는 말로 바꾸기 */
-function fbWhy(e) {
-  const c = String((e && (e.code || e.message)) || '');
-  if (/unauthorized-domain/.test(c)) return `이 주소(${location.hostname})가 Firebase의 승인된 도메인에 없어요. Firebase 콘솔 → Authentication → 설정 → 승인된 도메인에 추가하세요.`;
-  if (/popup-blocked/.test(c)) return '브라우저가 로그인 창을 막았어요. 주소창 오른쪽의 팝업 차단 표시를 눌러 허용해 주세요.';
-  if (/popup-closed|cancelled-popup/.test(c)) return '로그인 창이 닫혔어요. 다시 눌러 주세요.';
-  if (/operation-not-allowed/.test(c)) return 'Firebase에서 Google 로그인이 꺼져 있어요. Authentication → 로그인 방법 → Google 사용 설정.';
-  if (!FB.ready) return '서버(Firebase)에 연결되지 않았어요. config.js 값과 인터넷 연결을 확인하세요.';
-  if (!FB.user) return '교사 로그인이 안 되어 있어요. 왼쪽 아래 [교사 로그인]을 눌러 주세요.';
-  if (/permission/.test(c)) return FB.isTeacher()
-    ? `계정(${FB.user.email})은 맞는데 Firebase에 보안 규칙이 아직 게시되지 않았어요. Firebase 콘솔 → Firestore Database → 규칙 탭에 firestore.rules 내용을 붙여 넣고 [게시]해 주세요. (한 번만 하면 돼요)`
-    : `지금 계정(${FB.user.email})은 선생님 목록에 없어요. 왼쪽 아래에서 로그아웃하고 ${window.LOGIN_EMAIL || '등록된 계정'}으로 로그인해 주세요.`;
-  if (/not-found|failed-precondition/.test(c)) return 'Firestore 데이터베이스가 아직 없어요. Firebase 콘솔 → Firestore Database → 데이터베이스 만들기.';
-  if (/unavailable|network/.test(c)) return '인터넷 연결이 불안정해요. 잠시 후 다시 해 보세요.';
-  return '문제가 생겼어요 (' + c + ')';
-}
 
 /* ---------- 실시간 방(room)·응답 ---------- */
 const Live = {
@@ -342,7 +280,7 @@ const Live = {
       let q = FB.db.collection('rooms').doc(room).collection('responses');
       if (actId) q = q.where('act', '==', actId);
       return q.onSnapshot(s => cb(s.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.ts - b.ts)),
-        e => { console.error(e); toast('학생 응답을 불러오지 못했어요 — ' + fbWhy(e), 'err', 7000); cb([]); });
+        e => { console.error(e); toast('응답을 볼 권한이 없습니다. 교사 계정으로 로그인했는지, 보안 규칙에 이메일이 들어 있는지 확인하세요', 'err', 6000); cb([]); });
     }
     const f = () => cb(this._lsGet('resp:' + room, []).filter(r => !actId || r.act === actId));
     f();
@@ -359,138 +297,11 @@ const Live = {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).collection('responses').doc(id).delete();
     this._lsSet('resp:' + room, this._lsGet('resp:' + room, []).filter(r => r.id !== id)); emit('resp', room);
   },
-  /* 활동별 문서: rooms/{room}/acts/{actId} — 활동마다 따로 QR */
-  _actRef(room, id) { return FB.db.collection('rooms').doc(room).collection('acts').doc(id); },
-  async setAct(room, id, data) {
-    data.updated = Date.now();
-    if (this.cloud()) return this._actRef(room, id).set(data);
-    this._lsSet(`act:${room}:${id}`, data); emit('room', room);
-  },
-  async patchAct(room, id, patch) {
-    if (this.cloud()) return this._actRef(room, id).set(patch, { merge: true });
-    const k = `act:${room}:${id}`; this._lsSet(k, { ...this._lsGet(k, {}), ...patch }); emit('room', room);
-  },
-  watchAct(room, id, cb) {
-    if (this.cloud()) return this._actRef(room, id).onSnapshot(d => cb(d.exists ? d.data() : {}), e => { console.error(e); cb({ error: e.code }); });
-    const k = `act:${room}:${id}`, f = () => cb(this._lsGet(k, {}));
-    f();
-    const l = e => { if (e.key === k) f(); };
-    window.addEventListener('storage', l);
-    const off = on('room', r => { if (r === room) f(); });
-    return () => { window.removeEventListener('storage', l); off(); };
-  },
-  /* 방 문서 일부만 고치기 (그랑프리 알림 등) */
-  async patchRoom(room, patch) {
-    if (this.cloud()) return FB.db.collection('rooms').doc(room).set(patch, { merge: true });
-    this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...patch }); emit('room', room);
-  },
-  /* 학생 확인 — 학생이 직접 정하는 비밀번호
-     rooms/{room}/roster/{rid}  rid=해시(방·번호·이름) {num,name,set}  — 명단에 있는지, 비밀번호를 정했는지 (정확한 rid로만 조회)
-     rooms/{room}/keys/{k}      k=해시(방·번호·이름·비밀번호) {num,name,rid} — 응답 제출 때 서버가 확인 */
-  _rref(room) { return FB.db.collection('rooms').doc(room); },
-  async getKey(room, k) {
-    if (this.cloud()) { const d = await this._rref(room).collection('keys').doc(k).get(); return d.exists ? d.data() : null; }
-    return this._lsGet('keys:' + room, {})[k] || null;
-  },
-  async getRoster(room, rid) {
-    if (this.cloud()) { const d = await this._rref(room).collection('roster').doc(rid).get(); return d.exists ? d.data() : null; }
-    return this._lsGet('roster:' + room, {})[rid] || null;
-  },
-  /* 처음 비밀번호 정하기 */
-  async claimPin(room, rid, k, who, pin) {
-    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(k), { num: who.num, name: who.name, rid }); b.update(r.collection('roster').doc(rid), { set: true }); b.set(r.collection('pins').doc(rid), { num: who.num, name: who.name, pin, k, at: Date.now() }); return b.commit(); }
-    const ro = this._lsGet('roster:' + room, {}); if (!ro[rid] || ro[rid].set) throw Object.assign(new Error('이미 정해졌어요'), { code: 'permission-denied' });
-    const ks = this._lsGet('keys:' + room, {}); ks[k] = { num: who.num, name: who.name, rid }; ro[rid].set = true; this._lsSet('keys:' + room, ks); this._lsSet('roster:' + room, ro);
-    const ps = this._lsGet('pins:' + room, {}); ps[rid] = { num: who.num, name: who.name, pin, k, at: Date.now() }; this._lsSet('pins:' + room, ps);
-  },
-  /* 비밀번호 바꾸기 (지금 비밀번호를 아는 사람만) */
-  async changePin(room, oldk, newk, who, rid, pin) {
-    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(newk), { num: who.num, name: who.name, rid, oldk }); b.delete(r.collection('keys').doc(oldk)); b.set(r.collection('pins').doc(rid), { num: who.num, name: who.name, pin, k: newk, at: Date.now() }); return b.commit(); }
-    const ks = this._lsGet('keys:' + room, {}); if (!ks[oldk]) throw Object.assign(new Error('지금 비밀번호가 맞지 않아요'), { code: 'permission-denied' });
-    delete ks[oldk]; ks[newk] = { num: who.num, name: who.name, rid }; this._lsSet('keys:' + room, ks);
-    const ps = this._lsGet('pins:' + room, {}); ps[rid] = { num: who.num, name: who.name, pin, k: newk, at: Date.now() }; this._lsSet('pins:' + room, ps);
-  },
-  /* 교사: 명단 올리기 (비밀번호 정한 상태는 그대로 둠, 명단에서 빠진 학생의 비밀번호는 지움) */
-  async putRoster(room, map, meta) {
-    if (this.cloud()) {
-      const r = this._rref(room), rc = r.collection('roster'), kc = r.collection('keys');
-      const [ro, ks] = await Promise.all([rc.get(), kc.get()]); const have = new Set(), ops = [];
-      ro.forEach(d => { if (map[d.id]) have.add(d.id); else ops.push(['del', d.ref]); });
-      for (const [rid, v] of Object.entries(map)) if (!have.has(rid)) ops.push(['set', rc.doc(rid), { ...v, set: false }]);
-      ks.forEach(d => { const x = d.data(); if (!x.rid || !map[x.rid]) ops.push(['del', d.ref]); });
-      try { (await r.collection('pins').get()).forEach(d => { if (!map[d.id]) ops.push(['del', d.ref]); }); } catch (e) { console.warn('pins', e); }
-      for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, ref, v]) => t === 'del' ? b.delete(ref) : b.set(ref, v)); await b.commit(); }
-      await r.set(meta, { merge: true });
-      return;
-    }
-    const ro = this._lsGet('roster:' + room, {}), out = {};
-    for (const [rid, v] of Object.entries(map)) out[rid] = { ...v, set: !!ro[rid]?.set };
-    const ks = this._lsGet('keys:' + room, {}); for (const k of Object.keys(ks)) if (!ks[k].rid || !out[ks[k].rid]) delete ks[k];
-    const ps = this._lsGet('pins:' + room, {}); for (const k of Object.keys(ps)) if (!out[k]) delete ps[k];
-    this._lsSet('roster:' + room, out); this._lsSet('keys:' + room, ks); this._lsSet('pins:' + room, ps);
-    this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...meta }); emit('room', room);
-  },
-  /* 교사: 비밀번호 정했는지 한눈에 { rid: true/false } */
-  async rosterStatus(room) {
-    if (this.cloud()) {
-      const r = this._rref(room), [s, p] = await Promise.all([r.collection('roster').get(), r.collection('pins').get().catch(() => null)]); const m = {}, pins = {};
-      p && p.forEach(d => pins[d.id] = d.data());
-      s.forEach(d => m[d.id] = { set: !!d.data().set, pin: d.data().set ? (pins[d.id]?.pin || '') : '' }); return m;
-    }
-    const ro = this._lsGet('roster:' + room, {}), ps = this._lsGet('pins:' + room, {});
-    return Object.fromEntries(Object.entries(ro).map(([k, v]) => [k, { set: !!v.set, pin: v.set ? (ps[k]?.pin || '') : '' }]));
-  },
-  /* 교사: 비밀번호 초기화 → 학생이 다음에 들어올 때 새로 정함 */
-  async resetPin(room, rids) {
-    rids = [].concat(rids);
-    if (this.cloud()) {
-      const r = this._rref(room), ks = await r.collection('keys').get(), ops = [];
-      ks.forEach(d => { if (rids.includes(d.data().rid)) ops.push(['del', d.ref]); });
-      rids.forEach(rid => { ops.push(['upd', r.collection('roster').doc(rid)]); ops.push(['del', r.collection('pins').doc(rid)]); });
-      for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, ref]) => t === 'del' ? b.delete(ref) : b.set(ref, { set: false }, { merge: true })); await b.commit(); }
-      return;
-    }
-    const ro = this._lsGet('roster:' + room, {}), ks = this._lsGet('keys:' + room, {});
-    const ps = this._lsGet('pins:' + room, {});
-    rids.forEach(rid => { if (ro[rid]) ro[rid].set = false; delete ps[rid]; }); for (const k of Object.keys(ks)) if (rids.includes(ks[k].rid)) delete ks[k];
-    this._lsSet('roster:' + room, ro); this._lsSet('keys:' + room, ks); this._lsSet('pins:' + room, ps);
-  },
   async updateResp(room, id, patch) {
     if (this.cloud()) return FB.db.collection('rooms').doc(room).collection('responses').doc(id).set(patch, { merge: true });
     const arr = this._lsGet('resp:' + room, []); const r = arr.find(x => x.id === id); if (r) Object.assign(r, patch); this._lsSet('resp:' + room, arr); emit('resp', room);
   }
 };
-/* ---------- 학생 확인: 반(학급)·번호·이름 + 학생이 직접 정한 비밀번호 4자리 ---------- */
-const Keys = {
-  norm(s) { return String(s ?? '').replace(/\s+/g, ''); },
-  numN(n) { const t = String(n ?? '').trim(); return /^\d+$/.test(t) ? String(+t) : t; },
-  async hash(room, num, name, pin) {
-    const txt = [room, this.numN(num), this.norm(name), String(pin ?? '').trim()].join('|');
-    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(txt));
-    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-  },
-  rid(room, num, name) { return this.hash(room, num, name, '#roster'); },
-  siblings() { return S.classes().filter(c => c.room).map(c => ({ name: c.name, room: c.room })); },
-  canPublish() { return !Live.cloud() || (FB.user && FB.isTeacher()); },
-  async sync(cls, force = false) {
-    if (!cls.room) cls.room = uid(10);
-    const entries = await Promise.all(S.students(cls).filter(s => s.name).map(async s => [await this.rid(cls.room, s.num, s.name), { num: this.numN(s.num), name: String(s.name).trim() }]));
-    const meta = { classLabel: cls.name, subject: Brand.get().subject, siblings: this.siblings() };
-    const sig = await this.hash(cls.room, entries.map(e => e[0]).sort().join(','), JSON.stringify(meta), 'v2');
-    if (!force && cls.keysSig === sig) return false;
-    await Live.putRoster(cls.room, Object.fromEntries(entries), meta);
-    cls.keysSig = sig; return true;
-  },
-  /* 모든 학급의 명단을 서버에 반영 (바뀐 학급만) */
-  async syncAll(force = false) {
-    if (!this.canPublish() || !window.crypto?.subtle) return 0;
-    const cs = S.classes(), before = JSON.stringify(cs); let n = 0;
-    try { for (const c of cs) { if (c.students) c.students.forEach(x => delete x.pin); if (await this.sync(c, force)) n++; } }
-    finally { if (JSON.stringify(cs) !== before) S.saveClasses(cs); }
-    return n;
-  }
-};
-
 /* 학생별 최신 응답만 남기기 */
 function latestBy(list, keyFn) {
   const m = new Map(); for (const r of list) m.set(keyFn(r), r); return [...m.values()];
@@ -498,36 +309,50 @@ function latestBy(list, keyFn) {
 
 /* ---------- AI ---------- */
 const AI = {
-  /* AI 키는 Vercel 환경 변수에만 저장 — 브라우저는 /api/ai 를 거쳐서만 씀 (키가 화면·기기에 남지 않음) */
-  async _server() {
-    if (this.__srv !== undefined) return this.__srv;
-    if (window.PREVIEW_MODE) return (this.__srv = false);
-    try { const r = await fetch('/api/ai', { cache: 'no-store' }); const d = r.ok ? await r.json() : null; this.__srv = !!(d && d.ok); }
-    catch { this.__srv = false; }
-    return this.__srv;
+  settings() { return Store.get('local:ai', { provider: 'gemini', key: '', model: '' }); },
+  defaultModel(p) { return p === 'anthropic' ? 'claude-sonnet-5-5' : p === 'openai' ? 'gpt-5-mini' : 'gemini-2.5-flash'; },
+  async available() {
+    const s = this.settings(); if (s.key) return true;
+    return !!(await this._sample());
   },
-  async available() { return (await this._server()) || !!(await this._sample()); },
   async _sample() {
     if (this.__s !== undefined) return this.__s;
     try { this.__s = window.claude && window.claude.use ? await window.claude.use('sample') : null; } catch { this.__s = null; }
     return this.__s;
   },
   async ask(prompt, { system = '', json = true, maxTokens = 12000, onText, images = [] } = {}) {
+    const s = this.settings();
     let text = '';
-    if (await this._server()) {
-      if (!FB.user) throw new Error('교사 로그인 후 AI를 쓸 수 있어요.');
-      const token = await FB.user.getIdToken();
-      const r = await fetch('/api/ai', { method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token }, body: JSON.stringify({ prompt, system, maxTokens, images }) });
-      let d = {}; try { d = await r.json(); } catch { }
-      if (!r.ok) throw new Error(d.error || (r.status === 413 ? '보낼 자료가 너무 커요. 쪽 수를 줄여 주세요' : r.status === 504 ? 'AI 응답이 너무 오래 걸렸어요. 다시 시도해 주세요' : 'AI 서버 오류 (' + r.status + ')'));
-      text = d.text || '';
-      onText && onText(text);
-    } else {
+    const b64 = d => d.split(',')[1], mt = d => d.slice(5, d.indexOf(';'));
+    if (!s.key) {
       const sample = await this._sample();
-      if (!sample) throw new Error('AI를 쓸 수 없어요. Vercel 환경 변수에 AI 키(GEMINI_API_KEY 등)를 넣고 다시 배포해 주세요.');
+      if (!sample) throw new Error('AI 키가 없습니다. 설정 → AI에서 키를 넣어 주세요.');
       const blobs = images.length ? await Promise.all(images.map(d => fetch(d).then(r => r.blob()))) : undefined;
       const r = await sample((system ? system + '\n\n' : '') + prompt, { modelTier: 'complex', ...(blobs ? { images: blobs } : {}), onText: onText ? ({ text }) => onText(text) : undefined });
       text = r.text;
+    } else if (s.provider === 'anthropic') {
+      const r = await fetch('https://api.anthropic.com/v1/messages', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-api-key': s.key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+        body: JSON.stringify({ model: s.model || this.defaultModel('anthropic'), max_tokens: maxTokens, system: system || undefined, messages: [{ role: 'user', content: images.length ? [...images.map(d => ({ type: 'image', source: { type: 'base64', media_type: mt(d), data: b64(d) } })), { type: 'text', text: prompt }] : prompt }] })
+      });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error?.message || r.statusText);
+      text = d.content.filter(c => c.type === 'text').map(c => c.text).join('');
+    } else if (s.provider === 'openai') {
+      const r = await fetch('https://api.openai.com/v1/chat/completions', {
+        method: 'POST', headers: { 'content-type': 'application/json', authorization: 'Bearer ' + s.key },
+        body: JSON.stringify({ model: s.model || this.defaultModel('openai'), messages: [...(system ? [{ role: 'system', content: system }] : []), { role: 'user', content: images.length ? [...images.map(d => ({ type: 'image_url', image_url: { url: d } })), { type: 'text', text: prompt }] : prompt }], ...(json ? { response_format: { type: 'json_object' } } : {}) })
+      });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error?.message || r.statusText);
+      text = d.choices[0].message.content;
+    } else {
+      const model = s.model || this.defaultModel('gemini');
+      const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(s.key)}`, {
+        method: 'POST', headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ contents: [{ role: 'user', parts: [...images.map(d => ({ inlineData: { mimeType: mt(d), data: b64(d) } })), { text: prompt }] }], ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}), generationConfig: { maxOutputTokens: Math.max(maxTokens, 16000), ...(json ? { responseMimeType: 'application/json' } : {}) } })
+      });
+      const d = await r.json(); if (!r.ok) throw new Error(d.error?.message || r.statusText);
+      text = (d.candidates?.[0]?.content?.parts || []).map(p => p.text || '').join('');
     }
     return json ? this.parseJSON(text) : text;
   },
@@ -555,7 +380,6 @@ class Ink {
     this.w = w; this.h = h; this.onChange = onChange; this.chalk = chalk;
     this.strokes = []; this.items = []; this.undoStack = []; this.redoStack = [];
     this.tool = 'pen'; this.color = '#e53935'; this.size = 4; this.enabled = true;
-    this.eraserSize = Store.get('local:eraserSize', 2); this.seq = 0; this.hover = null;
     this.imgCache = new Map(); this._raf = 0;
     this._bind(); this.setEnabled(true);
   }
@@ -582,16 +406,11 @@ class Ink {
       const p = this._pt(e);
       if (this.tool === 'text') { this.onTextRequest && this.onTextRequest(p, e); return; }
       this._snap();
-      if (this.tool === 'strokeEraser') { this.erasing = true; this._eraseAt(p); return; }
-      if (this.tool === 'eraser') {    // 문지르는 지우개: 닿은 곳만 지움 (펜·글자·그림 모두)
-        this.cur = { tool: 'erase', color: '#000', size: this.eraserPx(), pts: [p], o: ++this.seq };
-        this.strokes.push(this.cur); this._req(); return;
-      }
-      this.cur = { tool: this.tool, color: this.color, size: this.size, pts: [p], o: ++this.seq };
+      if (this.tool === 'eraser') { this.erasing = true; this._eraseAt(p); return; }
+      this.cur = { tool: this.tool, color: this.color, size: this.size, pts: [p] };
       this.strokes.push(this.cur); this._req();
     });
     c.addEventListener('pointermove', e => {
-      if (this.tool === 'eraser' || this.tool === 'strokeEraser') { this.hover = this._pt(e); this._req(); } else if (this.hover) { this.hover = null; this._req(); }
       if (this.erasing) { this._eraseAt(this._pt(e)); return; }
       if (!this.cur) return;
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
@@ -602,49 +421,26 @@ class Ink {
       if (this.erasing) { this.erasing = false; this._changed(); }
       if (this.cur) { if (this.cur.pts.length === 1) this.cur.pts.push([this.cur.pts[0][0] + .1, this.cur.pts[0][1] + .1]); this.cur = null; this._changed(); this._req(); }
     };
-    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end); c.addEventListener('pointerleave', e => { if (this.hover) { this.hover = null; this._req(); } if (e.pointerType === 'mouse') end(); });
+    c.addEventListener('pointerup', end); c.addEventListener('pointercancel', end); c.addEventListener('pointerleave', e => { if (e.pointerType === 'mouse') end(); });
   }
-  /* 지우개 크기 5단계 (판서 좌표 기준 지름) */
-  eraserPx() { return [12, 28, 56, 110, 200][this.eraserSize] || 56; }
-  /* 글자 덩어리의 차지 범위 */
-  _box(it) {
-    if (it.type !== 'text') return { x: it.x, y: it.y, w: it.w || 0, h: it.h || 0 };
-    const ctx = this.ctx; ctx.save(); ctx.font = this._font(it);
-    const ls = String(it.text || '').split('\n'), w = Math.max(0, ...ls.map(l => ctx.measureText(l).width)); ctx.restore();
-    return { x: it.x, y: it.y, w, h: ls.length * it.size * 1.15 };
-  }
-  _font(it) { return `${it.bold ? '700 ' : ''}${it.size}px ${it.font ? `"${it.font}", 'Noto Sans KR', sans-serif` : this.chalk ? "'Nanum Pen Script', cursive" : "'Noto Sans KR', sans-serif"}`; }
   _eraseAt([x, y]) {
-    const r = Math.max(10, this.eraserPx() / 2);
+    const r = Math.max(10, this.size * 3);
     const before = this.strokes.length + this.items.length;
-    this.strokes = this.strokes.filter(s => s.tool === 'erase' || !s.pts.some(p => (p[0] - x) ** 2 + (p[1] - y) ** 2 < (r + s.size / 2) ** 2));
-    this.items = this.items.filter(it => { const b = this._box(it); return !(x >= b.x - r && x <= b.x + b.w + r && y >= b.y - r && y <= b.y + b.h + r); });
+    this.strokes = this.strokes.filter(s => !s.pts.some(p => (p[0] - x) ** 2 + (p[1] - y) ** 2 < (r + s.size / 2) ** 2));
+    this.items = this.items.filter(it => !(x >= it.x && x <= it.x + (it.w || 0) && y >= it.y && y <= it.y + (it.h || 0)));
     if (this.strokes.length + this.items.length !== before) this._req();
   }
   _req() { if (this._raf) return; this._raf = requestAnimationFrame(() => { this._raf = 0; this.render(); }); }
   undo() { const st = this.undoStack.pop(); if (!st) return; this.redoStack.push({ s: this.strokes.slice(), i: this.items.slice() }); this.strokes = st.s; this.items = st.i; this.render(); this._changed(); }
   redo() { const st = this.redoStack.pop(); if (!st) return; this.undoStack.push({ s: this.strokes.slice(), i: this.items.slice() }); this.strokes = st.s; this.items = st.i; this.render(); this._changed(); }
   clear() { if (!this.strokes.length && !this.items.length) return; this._snap(); this.strokes = []; this.items = []; this.render(); this._changed(); }
-  addItem(it) { this._snap(); it.o = ++this.seq; this.items.push(it); this.render(); this._changed(); }
-  /* 그리는 순서: 글자·그림·획·지우개 자국을 쓴 순서대로 (지우개는 그 앞에 그린 것만 지움) */
-  _layers() {
-    const L = [];
-    this.items.forEach((it, i) => L.push([it.o ?? (-2e9 + i), 0, it]));
-    this.strokes.forEach((st, i) => L.push([st.o ?? (-1e9 + i), 1, st]));
-    return L.sort((a, b) => a[0] - b[0]);
-  }
-  _paint(ctx) { for (const [, k, v] of this._layers()) k ? this._drawStroke(ctx, v) : this._drawItem(ctx, v); }
+  addItem(it) { this._snap(); this.items.push(it); this.render(); this._changed(); }
   render() {
     const { ctx, c } = this;
     ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, c.width, c.height);
     ctx.setTransform(c.width / this.w, 0, 0, c.height / this.h, 0, 0);
-    this._paint(ctx);
-    if (this.hover && this.enabled) {   // 지우개 크기 미리 보기 동그라미
-      const r = this.eraserPx() / 2; ctx.save(); ctx.globalCompositeOperation = 'source-over';
-      ctx.beginPath(); ctx.arc(this.hover[0], this.hover[1], r, 0, Math.PI * 2);
-      ctx.lineWidth = Math.max(1.5, this.w / 900); ctx.strokeStyle = this.chalk ? 'rgba(255,255,255,.85)' : 'rgba(30,41,59,.75)'; ctx.setLineDash([6, 5]); ctx.stroke();
-      ctx.restore();
-    }
+    for (const it of this.items) this._drawItem(ctx, it);
+    for (const s of this.strokes) this._drawStroke(ctx, s);
   }
   _drawItem(ctx, it) {
     if (it.type === 'img') {
@@ -652,7 +448,7 @@ class Ink {
       if (!im) { im = new Image(); im.onload = () => this._req(); im.src = it.src; this.imgCache.set(it.src, im); }
       if (im.complete && im.naturalWidth) ctx.drawImage(im, it.x, it.y, it.w, it.h);
     } else if (it.type === 'text') {
-      ctx.save(); ctx.fillStyle = it.color; ctx.font = this._font(it); ctx.textBaseline = 'top';
+      ctx.save(); ctx.fillStyle = it.color; ctx.font = `${it.bold ? '700 ' : ''}${it.size}px ${it.font ? `"${it.font}", 'Noto Sans KR', sans-serif` : this.chalk ? "'Nanum Pen Script', cursive" : "'Noto Sans KR', sans-serif"}`; ctx.textBaseline = 'top';
       if (it.font && document.fonts && !document.fonts.check(`20px "${it.font}"`, '가')) (window.boardFontLoad ? boardFontLoad(it.font) : Promise.resolve()).then(() => this._req());
       if (this.chalk) { ctx.shadowColor = it.color; ctx.shadowBlur = 2; }
       it.text.split('\n').forEach((ln, i) => ctx.fillText(ln, it.x, it.y + i * it.size * 1.15));
@@ -662,8 +458,7 @@ class Ink {
   _drawStroke(ctx, s) {
     const p = s.pts; if (!p.length) return;
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = s.color;
-    if (s.tool === 'erase') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000'; ctx.lineWidth = s.size; ctx.shadowBlur = 0; }
-    else if (s.tool === 'hl') { ctx.globalAlpha = 0.33; ctx.lineWidth = s.size * 4.5; ctx.lineCap = 'square'; }
+    if (s.tool === 'hl') { ctx.globalAlpha = 0.33; ctx.lineWidth = s.size * 4.5; ctx.lineCap = 'square'; }
     else { ctx.lineWidth = s.size; if (this.chalk) { ctx.shadowColor = s.color; ctx.shadowBlur = s.size * 0.9; ctx.globalAlpha = 0.92; } }
     ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
     for (let i = 1; i < p.length - 1; i++) { const mx = (p[i][0] + p[i + 1][0]) / 2, my = (p[i][1] + p[i + 1][1]) / 2; ctx.quadraticCurveTo(p[i][0], p[i][1], mx, my); }
@@ -671,7 +466,7 @@ class Ink {
   }
   data() {
     return {
-      w: this.w, strokes: this.strokes.map(s => ({ t: s.tool, c: s.color, z: s.size, ...(s.o != null ? { o: s.o } : {}), p: s.pts.flatMap(q => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10]) })),
+      w: this.w, strokes: this.strokes.map(s => ({ t: s.tool, c: s.color, z: s.size, p: s.pts.flatMap(q => [Math.round(q[0] * 10) / 10, Math.round(q[1] * 10) / 10]) })),
       items: this.items.map(i => ({ ...i }))
     };
   }
@@ -679,18 +474,17 @@ class Ink {
     this.strokes = []; this.items = []; this.undoStack = []; this.redoStack = [];
     if (d) {
       const sx = d.w && this.w && d.w !== this.w ? this.w / d.w : 1;
-      this.strokes = (d.strokes || []).map(s => { const pts = []; for (let i = 0; i < s.p.length; i += 2) pts.push([s.p[i] * sx, s.p[i + 1] * sx]); return { tool: s.t, color: s.c, size: s.t === 'erase' ? s.z * sx : s.z, pts, ...(s.o != null ? { o: s.o } : {}) }; });
+      this.strokes = (d.strokes || []).map(s => { const pts = []; for (let i = 0; i < s.p.length; i += 2) pts.push([s.p[i] * sx, s.p[i + 1] * sx]); return { tool: s.t, color: s.c, size: s.z, pts }; });
       this.items = (d.items || []).map(i => ({ ...i }));
     }
-    this.seq = Math.max(0, ...this.strokes.map(s => s.o || 0), ...this.items.map(i => i.o || 0));
     this.render();
   }
   toPNG(bg) {
     const c = document.createElement('canvas'); c.width = this.w; c.height = this.h;
     const x = c.getContext('2d');
-    const lay = document.createElement('canvas'); lay.width = this.w; lay.height = this.h; this._paint(lay.getContext('2d'));
     if (bg) { x.fillStyle = bg; x.fillRect(0, 0, c.width, c.height); }
-    x.drawImage(lay, 0, 0);
+    for (const it of this.items) this._drawItem(x, it);
+    for (const s of this.strokes) this._drawStroke(x, s);
     return c.toDataURL('image/png');
   }
 }
@@ -703,20 +497,15 @@ function inkToolbar(ink, { colors = PEN_COLORS, onToggle, extra = [], toggle = t
   const btn = (label, title, fn, cls = '') => h('button', { class: 'ib ' + cls, title, onclick: fn }, label);
   const setTool = t => { ink.tool = t; if (toggle && !ink.enabled) { ink.setEnabled(true); onToggle && onToggle(true); } refresh(); };
   const tg = toggle ? btn('✍️ 필기', '필기 켜기/끄기 (끄면 글자 클릭 가능)', () => { ink.setEnabled(!ink.enabled); onToggle && onToggle(ink.enabled); refresh(); }, 'toggle') : null;
-  const tools = [['pen', '🖊', '펜'], ['hl', '🖍', '형광펜'], ['eraser', '🧽', '지우개 — 문지른 곳만 지워요 (글자·그림도)'], ['strokeEraser', '✂️', '획 지우개 — 닿은 획·글자·그림을 통째로 지워요']].map(([t, i, n]) => { const b = btn(i, n, () => setTool(t)); b.dataset.tool = t; return b; });
-  const sw = colors.map(c => { const b = h('button', { class: 'sw', title: c, style: { background: c }, onclick: () => { ink.color = c; if (/eraser/i.test(ink.tool)) ink.tool = 'pen'; setTool(ink.tool); } }); b.dataset.c = c; return b; });
+  const tools = [['pen', '🖊', '펜'], ['hl', '🖍', '형광펜'], ['eraser', '🧽', '지우개 (획 단위)']].map(([t, i, n]) => { const b = btn(i, n, () => setTool(t)); b.dataset.tool = t; return b; });
+  const sw = colors.map(c => { const b = h('button', { class: 'sw', title: c, style: { background: c }, onclick: () => { ink.color = c; if (ink.tool === 'eraser') ink.tool = 'pen'; setTool(ink.tool); } }); b.dataset.c = c; return b; });
   const size = h('input', { type: 'range', min: 1, max: 16, value: ink.size, title: '굵기', class: 'sz', oninput: e => { ink.size = +e.target.value; } });
-  /* 지우개 크기 5단계 */
-  const ERS = [['아주 작게', 8], ['작게', 12], ['보통', 17], ['크게', 23], ['아주 크게', 30]];
-  const esz = h('span', { class: 'er-sizes' }, ERS.map(([n, px], i) => { const b = h('button', { class: 'er-sz', title: `지우개 ${n}`, onclick: () => { ink.eraserSize = i; Store.set('local:eraserSize', i); if (!/eraser/i.test(ink.tool)) ink.tool = 'eraser'; setTool(ink.tool); } }, h('i', { style: { width: px + 'px', height: px + 'px' } })); b.dataset.i = i; return b; }));
-  bar.append(...[tg, h('span', { class: 'sep' }), ...tools, esz, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
+  bar.append(...[tg, h('span', { class: 'sep' }), ...tools, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
     btn('↶', '되돌리기', () => ink.undo()), btn('↷', '다시', () => ink.redo()),
     btn('🗑', '이 화면 필기 지우기', async () => { if (await confirmBox('필기를 모두 지울까요?', '지우기', true)) ink.clear(); }), ...extra].filter(Boolean));
   function refresh() {
     if (tg) tg.classList.toggle('on', ink.enabled);
     tools.forEach(b => b.classList.toggle('on', ink.enabled && b.dataset.tool === ink.tool));
-    const er = ink.enabled && /eraser/i.test(ink.tool); esz.classList.toggle('show', er); size.style.display = er ? 'none' : '';
-    $$('.er-sz', esz).forEach(b => b.classList.toggle('on', +b.dataset.i === ink.eraserSize));
     sw.forEach(b => b.classList.toggle('on', b.dataset.c === ink.color));
   }
   refresh(); bar.refresh = refresh;
