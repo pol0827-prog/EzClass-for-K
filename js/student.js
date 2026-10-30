@@ -160,10 +160,11 @@ function startStudent(room, pv = null) {
     if (actId && room$.open === false) { view = 'closed'; main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big' }, '⛔'), h('h2', null, '응답이 마감됐어요'), h('p', { class: 'muted' }, a.q || a.title || ''), h('p', { class: 'muted small' }, '선생님이 다시 열면 이 화면이 자동으로 바뀌어요.'))); return; }
     if (actId && !k) { view = 'wait'; main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '⏳'), h('h2', null, '아직 준비되지 않은 QR이에요'), h('p', { class: 'muted' }, '잠시 기다리거나 선생님께 알려 주세요. 준비되면 자동으로 바뀌어요.'))); return; }
     if (!k || k === 'none' || !a.id) { main.replaceChildren(h('div', { class: 'stu-wait' }, h('div', { class: 'big pulse' }, '⏳'), h('h2', null, '선생님이 활동을 열 때까지 기다려 주세요'), h('p', { class: 'muted' }, '이 화면을 켜 두면 자동으로 바뀝니다.'))); return; }
-    if (sentFor[a.id]) { main.replaceChildren(done()); return; }
+    if (sentFor[a.id] && k !== 'hw') { main.replaceChildren(done()); return; }
     if (k === 'open') main.replaceChildren(openForm(a));
     else if (k === 'share') main.replaceChildren(shareForm(a));
     else if (k === 'close') main.replaceChildren(closeForm(a));
+    else if (k === 'hw') main.replaceChildren(hwStudentForm(a, room, me, send, pv));
   }
   function openForm(a) {
     const card = h('div', { class: 'stu-card' }, h('div', { class: 'tag' }, '💡 배움열기'), h('h2', { class: 'q' }, a.q));
@@ -255,7 +256,7 @@ function startStudent(room, pv = null) {
 /* 교사용: 학생 휴대폰 화면 미리보기 */
 function studentPreview(kind, act) {
   const screen = h('div', { class: 'phone-screen student-pv' });
-  const kinds = { open: '💡 배움열기', share: '🤝 배움공유', close: '🌱 배움마무리' };
+  const kinds = { open: '💡 배움열기', share: '🤝 배움공유', close: '🌱 배움마무리', hw: '📤 과제' };
   const st = h('div', { class: 'present phone-wrap', onclick: e => { if (e.target === st) st.remove(); } },
     h('div', { class: 'phone-side' }, h('h2', null, '📱 학생 화면 미리보기'), h('p', null, kinds[kind] || ''), h('p', { class: 'muted small' }, '학생 휴대폰에 이렇게 보여요. 눌러 보고 써 봐도 실제로 제출되지는 않아요.'),
       h('button', { class: 'btn', onclick: () => startStudent(null, { kind, act, mount: screen }) }, '↺ 처음부터'), h('button', { class: 'btn primary', onclick: () => st.remove() }, '닫기')),

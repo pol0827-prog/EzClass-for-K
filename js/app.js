@@ -2,7 +2,7 @@
 /* =========================================================
    앱 뼈대 · 라우터 · 시작
    ========================================================= */
-const APP_VER = '2026.10.30-k3';
+const APP_VER = '2026.10.30-k19';
 const View = { cleanup: [] };
 const ROUTES = {
   home: [renderHome, '🏠', '홈'],
@@ -12,6 +12,7 @@ const ROUTES = {
   close: [renderClose, '🌱', '배움마무리'],
   board: [renderBoard, '🖍', '칠판'],
   sheet: [renderSheet, '📄', '학습지'],
+  hw: [renderHW, '📤', '과제'],
   attend: [renderAttend, '🪑', '출결·자리'],
   memo: [renderMemo, '📝', '관찰 메모'],
   grades: [renderGrades, '📊', '성적'],
@@ -35,7 +36,15 @@ async function route() {
   const k = ROUTES[location.hash.slice(1)] ? location.hash.slice(1) : 'home';
   document.body.dataset.view = k;
   $$('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + k));
+  adminRail(k);
   try { ROUTES[k][0](); } catch (e) { console.error(e); $('#view').replaceChildren(h('div', { class: 'empty' }, '화면을 그리는 중 오류가 났습니다: ' + e.message)); }
+}
+/* 홈이 아닌 화면: 관리 메뉴를 오른쪽에 세로로 작게 */
+function adminRail(k) {
+  let r = document.getElementById('adminRail');
+  if (!r) { r = h('nav', { id: 'adminRail' }, HOME_ADMIN.map(x => { const [, i, l] = ROUTES[x]; return h('a', { href: '#' + x, title: l, 'data-k': x }, h('span', { class: 'ar-i' }, i), h('span', { class: 'ar-t' }, l)); })); document.body.append(r); }
+  r.style.display = k === 'home' ? 'none' : '';
+  $$('a', r).forEach(a => a.classList.toggle('on', a.dataset.k === k));
 }
 function buildShell() {
   // 관리(출결·메모·성적·평가 안내·설정)는 홈 화면 꽃 아래 한 줄로
@@ -61,7 +70,7 @@ function refreshTop() {
   top.replaceChildren(h('span', { id: 'clockSlot' }),
     h('button', { class: 'ib', title: '메뉴 접기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, '☰'),
     cls, les, h('span', { class: 'grow' }),
-    h('div', { class: 'tools' }, [['⏱', '타이머', () => Timer.open()], ['🎲', '뽑기', () => Picker.open()], ['👥', '모둠', () => Groups.open()], ['📱', 'QR', () => showQRBig()], ['🎬', '영상', () => Video.manager('global', '공통')], ['⛶', '전체', () => toggleFull()]]
+    h('div', { class: 'tools' }, [['⏱', '타이머', () => Timer.open()], ['🎲', '발표뽑기', () => Picker.open()], ['👥', '모둠뽑기', () => Groups.open()], ['🎬', '영상', () => Video.manager('global', '공통')], ['🖼', '이미지', () => Pics.open()], ['⛶', '전체', () => toggleFull()]]
       .map(([i, l, f]) => h('button', { class: 'tool', title: l, onclick: f }, h('span', null, i), h('small', null, l)))));
 }
 function refreshFoot() {

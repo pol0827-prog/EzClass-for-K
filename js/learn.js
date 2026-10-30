@@ -101,7 +101,7 @@ function renderLearn() {
 
   const chips = h('div', { class: 'chap-chips' }, lesson.chapters.map((c, i) => h('button', { class: 'chip' + (c.id === ch.id ? ' on' : ''), onclick: () => { S.setUI({ chapterId: c.id }); LearnState.sel = null; renderLearn(); } }, h('small', null, `챕터 ${i + 1}`), ' ', c.title)),
     h('button', { class: 'chip add', title: '지문 추가', onclick: () => openChapterPaste(lesson) }, '+'));
-  const TABS = [['paper', '📄', '지문'], ['ox', '⚡', '킬러 OX'], ['struct', '🗺', '구조도'], ['edit', '✏️', '편집']];
+  const TABS = [['paper', '📄', '지문'], ['edit', '✏️', '지문 편집'], ['ox', '⚡', '킬러 OX'], ['struct', '🗺', '구조도']];
   if (!TABS.some(t => t[0] === LearnState.tab)) LearnState.tab = 'paper';
   const tabs = h('div', { class: 'tabs icon-tabs' }, TABS.map(([k, i, l]) => h('button', { class: 'tab' + (LearnState.tab === k ? ' on' : '') + (k === 'edit' ? ' minor' : ''), title: l, onclick: () => { LearnState.tab = k; renderLearn(); } }, h('span', { class: 'ti' }, i), h('span', { class: 'tl' }, l))));
   root.append(h('div', { class: 'learn-head' }, chips, tabs));

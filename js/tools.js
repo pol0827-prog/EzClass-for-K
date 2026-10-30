@@ -467,3 +467,45 @@ const Bell = {
     document.addEventListener('fullscreenchange', tick);
   }
 };
+
+/* ---------- 🖼 이미지: 지금 화면 위에 띄우기 (끌어 옮기기·크기 조절) ---------- */
+const Pics = {
+  z: 10040,
+  open() {
+    const inp = h('input', { type: 'file', accept: 'image/*', multiple: true });
+    inp.onchange = async () => { let k = 0; for (const f of inp.files) { await this.float(await shrinkImage(f, 2200, 1600000), k++); } };
+    inp.click();
+  },
+  async float(src, k = 0) {
+    const im = new Image(); im.src = src; await im.decode().catch(() => { });
+    const W = innerWidth, H = innerHeight, r = Math.min(W * 0.5 / (im.naturalWidth || 800), H * 0.6 / (im.naturalHeight || 600), 1.5);
+    const w = Math.round((im.naturalWidth || 800) * r), hgt = Math.round((im.naturalHeight || 600) * r);
+    const box = h('div', { class: 'float-pic', style: { left: (W - w) / 2 + k * 30 + 'px', top: (H - hgt) / 2 + k * 30 + 'px', width: w + 'px', height: hgt + 'px', zIndex: ++this.z } });
+    const img = h('img', { src, draggable: false });
+    let saved = null;
+    const fit = () => { if (saved) { Object.assign(box.style, saved); saved = null; return; } saved = { left: box.style.left, top: box.style.top, width: box.style.width, height: box.style.height }; const rr = Math.min(W * 0.92 / im.naturalWidth, (H * 0.88) / im.naturalHeight); const fw = im.naturalWidth * rr, fh = im.naturalHeight * rr; Object.assign(box.style, { left: (W - fw) / 2 + 'px', top: (H - fh) / 2 + 'px', width: fw + 'px', height: fh + 'px' }); };
+    const bar = h('div', { class: 'fp-bar' },
+      h('button', { title: '화면 가득 / 되돌리기 (두 번 눌러도 돼요)', onclick: fit }, '⤢'),
+      h('button', { title: '닫기', onclick: () => box.remove() }, '✕'));
+    const grip = h('div', { class: 'fp-grip', title: '끌어서 크기 조절' });
+    box.append(img, bar, grip);
+    // 끌어 옮기기
+    img.addEventListener('pointerdown', e => {
+      e.preventDefault(); box.style.zIndex = ++this.z; img.setPointerCapture(e.pointerId);
+      const sx = e.clientX, sy = e.clientY, ox = box.offsetLeft, oy = box.offsetTop;
+      const mv = ev => { box.style.left = ox + ev.clientX - sx + 'px'; box.style.top = oy + ev.clientY - sy + 'px'; };
+      const up = () => { img.removeEventListener('pointermove', mv); img.removeEventListener('pointerup', up); };
+      img.addEventListener('pointermove', mv); img.addEventListener('pointerup', up);
+    });
+    img.addEventListener('dblclick', fit);
+    // 크기 조절 (비율 유지)
+    grip.addEventListener('pointerdown', e => {
+      e.preventDefault(); e.stopPropagation(); grip.setPointerCapture(e.pointerId);
+      const sx = e.clientX, ow = box.offsetWidth, ratio = box.offsetHeight / box.offsetWidth;
+      const mv = ev => { const nw = Math.max(120, ow + ev.clientX - sx); box.style.width = nw + 'px'; box.style.height = nw * ratio + 'px'; };
+      const up = () => { grip.removeEventListener('pointermove', mv); grip.removeEventListener('pointerup', up); };
+      grip.addEventListener('pointermove', mv); grip.addEventListener('pointerup', up);
+    });
+    const fs = document.fullscreenElement; (fs && fs !== document.documentElement ? fs : document.body).append(box);
+  }
+};

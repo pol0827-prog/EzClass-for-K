@@ -549,6 +549,20 @@ async function withBusy(btn, label, fn) {
 }
 
 /* ---------- 판서 엔진 ---------- */
+const INK_SHAPES = ['line', 'wave', 'rect', 'tri', 'ellipse'];
+function inkShapePts(tool, a, b, size = 4) {
+  const [x1, y1] = a, [x2, y2] = b;
+  if (tool === 'rect') return [[x1, y1], [x2, y1], [x2, y2], [x1, y2]];
+  if (tool === 'tri') return [[(x1 + x2) / 2, y1], [x2, y2], [x1, y2]];
+  if (tool === 'ellipse') { const cx = (x1 + x2) / 2, cy = (y1 + y2) / 2, rx = Math.abs(x2 - x1) / 2, ry = Math.abs(y2 - y1) / 2; return Array.from({ length: 64 }, (_, i) => { const t = i / 64 * Math.PI * 2; return [cx + rx * Math.cos(t), cy + ry * Math.sin(t)]; }); }
+  if (tool === 'wave') {   // 물결 밑줄
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy); if (len < 2) return [a, b];
+    const ux = dx / len, uy = dy / len, amp = Math.max(6, size * 1.8), per = Math.max(30, size * 7), out = [];
+    for (let d = 0; d <= len; d += 3) { const w = Math.sin(d / per * Math.PI * 2) * amp; out.push([x1 + ux * d - uy * w, y1 + uy * d + ux * w]); }
+    return out;
+  }
+  return [a, b];
+}
 class Ink {
   constructor(canvas, { w, h, onChange, chalk = false } = {}) {
     this.c = canvas; this.ctx = canvas.getContext('2d');
@@ -594,6 +608,14 @@ class Ink {
       if (this.tool === 'eraser' || this.tool === 'strokeEraser') { this.hover = this._pt(e); this._req(); } else if (this.hover) { this.hover = null; this._req(); }
       if (this.erasing) { this._eraseAt(this._pt(e)); return; }
       if (!this.cur) return;
+      if (INK_SHAPES.includes(this.cur.tool)) {   // 📏 자: 곧은 줄·물결·네모·세모·동그라미
+        const a = this.cur.a || (this.cur.a = this.cur.pts[0]), q = this._pt(e); let dx = q[0] - a[0], dy = q[1] - a[1];
+        if (this.cur.tool === 'line' || this.cur.tool === 'wave') {   // 수평·수직·45°에 가까우면 딱 맞춤
+          const len = Math.hypot(dx, dy), ang = Math.atan2(dy, dx), step = Math.PI / 4, snap = Math.round(ang / step) * step;
+          if (Math.abs(ang - snap) < 0.07) { dx = Math.cos(snap) * len; dy = Math.sin(snap) * len; }
+        }
+        this.cur.pts = inkShapePts(this.cur.tool, a, [a[0] + dx, a[1] + dy], this.cur.size); this._req(); return;
+      }
       const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
       for (const ev of (evs.length ? evs : [e])) this.cur.pts.push(this._pt(ev));
       this._req();
@@ -664,6 +686,10 @@ class Ink {
     ctx.save(); ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = s.color;
     if (s.tool === 'erase') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = '#000'; ctx.lineWidth = s.size; ctx.shadowBlur = 0; }
     else if (s.tool === 'hl') { ctx.globalAlpha = 0.33; ctx.lineWidth = s.size * 4.5; ctx.lineCap = 'square'; }
+    else if (INK_SHAPES.includes(s.tool)) {   // 도형은 꺾임을 살려 곧게
+      ctx.lineWidth = s.size; if (this.chalk) { ctx.shadowColor = s.color; ctx.shadowBlur = s.size * 0.9; ctx.globalAlpha = 0.92; }
+      ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]); for (let i = 1; i < p.length; i++) ctx.lineTo(p[i][0], p[i][1]); if (p.length > 2 && s.tool !== 'wave') ctx.closePath(); ctx.stroke(); ctx.restore(); return;
+    }
     else { ctx.lineWidth = s.size; if (this.chalk) { ctx.shadowColor = s.color; ctx.shadowBlur = s.size * 0.9; ctx.globalAlpha = 0.92; } }
     ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
     for (let i = 1; i < p.length - 1; i++) { const mx = (p[i][0] + p[i + 1][0]) / 2, my = (p[i][1] + p[i + 1][1]) / 2; ctx.quadraticCurveTo(p[i][0], p[i][1], mx, my); }
@@ -709,12 +735,21 @@ function inkToolbar(ink, { colors = PEN_COLORS, onToggle, extra = [], toggle = t
   /* 지우개 크기 5단계 */
   const ERS = [['아주 작게', 8], ['작게', 12], ['보통', 17], ['크게', 23], ['아주 크게', 30]];
   const esz = h('span', { class: 'er-sizes' }, ERS.map(([n, px], i) => { const b = h('button', { class: 'er-sz', title: `지우개 ${n}`, onclick: () => { ink.eraserSize = i; Store.set('local:eraserSize', i); if (!/eraser/i.test(ink.tool)) ink.tool = 'eraser'; setTool(ink.tool); } }, h('i', { style: { width: px + 'px', height: px + 'px' } })); b.dataset.i = i; return b; }));
+  const RULERS = [['line', '📏', '곧은 줄'], ['wave', '〰️', '물결 밑줄'], ['rect', '▭', '네모 테두리'], ['tri', '△', '세모 테두리'], ['ellipse', '◯', '동그라미 테두리']];
+  let lastRuler = Store.get('local:ruler', 'line');
+  const rIcon = () => (RULERS.find(r => r[0] === lastRuler) || RULERS[0])[1];
+  const rBtn = btn(rIcon(), '자 — 곧은 줄·물결 밑줄·네모·세모·동그라미 테두리 (한 번 더 누르면 모양 고르기)', () => { if (INK_SHAPES.includes(ink.tool) && ink.enabled) rMenu.classList.toggle('show'); else setTool(lastRuler); });
+  const rMenu = h('span', { class: 'ruler-menu' }, RULERS.map(([t, i, n]) => { const b = h('button', { class: 'ib', title: n, onclick: () => { lastRuler = t; Store.set('local:ruler', t); rBtn.firstChild ? rBtn.textContent = i : 0; rMenu.classList.remove('show'); setTool(t); } }, h('span', null, i), h('small', null, n)); b.dataset.r = t; return b; }));
+  const ruler = h('span', { class: 'ruler-wrap' }, rBtn, rMenu);
+  tools.splice(2, 0, ruler);
   bar.append(...[tg, h('span', { class: 'sep' }), ...tools, esz, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
     btn('↶', '되돌리기', () => ink.undo()), btn('↷', '다시', () => ink.redo()),
     btn('🗑', '이 화면 필기 지우기', async () => { if (await confirmBox('필기를 모두 지울까요?', '지우기', true)) ink.clear(); }), ...extra].filter(Boolean));
   function refresh() {
     if (tg) tg.classList.toggle('on', ink.enabled);
-    tools.forEach(b => b.classList.toggle('on', ink.enabled && b.dataset.tool === ink.tool));
+    tools.forEach(b => b.dataset && b.dataset.tool && b.classList.toggle('on', ink.enabled && b.dataset.tool === ink.tool));
+    rBtn.classList.toggle('on', ink.enabled && INK_SHAPES.includes(ink.tool)); rBtn.textContent = rIcon();
+    $$('button', rMenu).forEach(b => b.classList.toggle('on', b.dataset.r === ink.tool));
     const er = ink.enabled && /eraser/i.test(ink.tool); esz.classList.toggle('show', er); size.style.display = er ? 'none' : '';
     $$('.er-sz', esz).forEach(b => b.classList.toggle('on', +b.dataset.i === ink.eraserSize));
     sw.forEach(b => b.classList.toggle('on', b.dataset.c === ink.color));

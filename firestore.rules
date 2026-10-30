@@ -64,6 +64,17 @@ service cloud.firestore {
         allow read, update, delete: if isTeacher();             // 응답 열람은 교사만
       }
     }
+    match /rooms/{room}/files/{fid} {      // 📤 과제 파일 조각 — 학생은 명단·비밀번호가 맞을 때만 올림, 보기는 선생님만
+      allow create: if isTeacher() || (request.resource.size() < 1000000
+                    && request.resource.data.k is string && request.resource.data.data is string
+                    && exists(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k))
+                    && get(/databases/$(database)/documents/rooms/$(room)/keys/$(request.resource.data.k)).data.num == request.resource.data.num);
+      allow read, update, delete: if isTeacher();
+    }
+    match /rooms/{room}/fb/{id} {          // 📤 과제 평가·코멘트 — 문서 이름에 학생 열쇠가 들어가서 그 학생만 찾을 수 있음
+      allow get: if true;
+      allow list, write: if isTeacher();
+    }
     match /users/{uid}/{doc=**} {          // 선생님 개인 자료(지문·칠판·출결 등) 동기화 — 등록 교사 본인만
       allow read, write: if isTeacher() && request.auth.uid == uid;
     }

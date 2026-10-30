@@ -44,6 +44,22 @@ function liveStatus(want = PageAct) {
   if (typeof el.stop === 'function') View.cleanup.push(() => el.stop());
   return el;
 }
+/* ---------- 접기·펼치기 ---------- */
+// 왼쪽 칸 전체 접기 (배움열기·배움공유·배움마무리 공통, 기억함)
+function sideFold(layout) {
+  const side = layout.querySelector('.open-side'); if (!side) return layout;
+  const set = v => { layout.classList.toggle('folded', v); Store.set('local:sideFold', v); btn.textContent = v ? '▶ 펴기' : '◀ 접기'; btn.title = v ? '왼쪽 칸 펴기' : '왼쪽 칸 접기'; setTimeout(() => window.dispatchEvent(new Event('resize')), 50); };
+  const btn = h('button', { class: 'fold-btn', onclick: () => set(!layout.classList.contains('folded')) });
+  side.prepend(btn); set(!!Store.get('local:sideFold', false));
+  return layout;
+}
+// 칸 하나 접기 (QR 등, 기억함)
+function foldBox(key, label, body) {
+  const k = 'local:fold:' + key, closed = !!Store.get(k, false);
+  const d = h('details', { class: 'fold-box' }, h('summary', null, label), body);
+  d.open = !closed; d.addEventListener('toggle', () => Store.set(k, !d.open));
+  return d;
+}
 /* ---------- 활동마다 다른 QR: 활동을 서버에 올리기(게시) ---------- */
 const Pub = {
   key(room, id) { return room + ':' + id; },
@@ -144,7 +160,7 @@ function renderHome() {
 }
 
 /* ---------- ① 배움열기 ---------- */
-const OpenState = { actId: null, view: 'stats', hideNames: false, unsub: null };
+const OpenState = { actId: null, view: 'wall', hideNames: false, unsub: null };
 function renderOpen() {
   const root = $('#view'); root.replaceChildren();
   const key = 'acts:' + S.lessonKey();
@@ -160,10 +176,10 @@ function renderOpen() {
     h('div', { class: 'clamp2' }, a.q))));
   const side = h('div', { class: 'open-side' },
     h('div', { class: 'row' }, h('h3', { class: 'grow' }, '💡 배움열기 질문'), h('button', { class: 'btn sm primary', onclick: () => editAct(key) }, '+ 질문')),
-    acts.length ? listEl : emptyPic('💡', '첫 질문 만들기', h('button', { class: 'btn primary lg', onclick: () => editAct(key) }, '+ 질문')),
+    acts.length ? foldBox('openlist', `📋 질문 목록 (${acts.length})`, listEl) : emptyPic('💡', '첫 질문 만들기', h('button', { class: 'btn primary lg', onclick: () => editAct(key) }, '+ 질문')),
     h('div', { class: 'card soft small' }, qrPanel(false, PageAct)));
   const main = h('div', { class: 'open-main' });
-  root.append(h('div', { class: 'open-layout' }, side, main));
+  root.append(sideFold(h('div', { class: 'open-layout' }, side, main)));
   OpenState.unsub && OpenState.unsub();
   if (!act) { main.append(h('div', { class: 'empty' }, '왼쪽에서 질문을 만들면 질문마다 전용 QR이 생겨요. 학생은 그 QR로 바로 그 질문에 응답합니다.')); return; }
   const room = S.room();
@@ -173,8 +189,7 @@ function renderOpen() {
   const stage = h('div', { class: 'open-stage' },
     actStatus(PageAct),
     h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow q-title' }, act.q),
-      h('button', { class: 'btn', title: '학생 휴대폰에 보일 응답지를 미리 봅니다', onclick: () => studentPreview('open', act) }, '📱 응답지 미리보기'),
-      h('button', { class: 'btn primary', onclick: () => showQRBig({ kind: 'open', act }) }, '📱 이 활동 QR')),
+      h('button', { class: 'btn', title: '학생 휴대폰에 보일 응답지를 미리 봅니다', onclick: () => studentPreview('open', act) }, '📱 응답지 미리보기')),
     h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }),
       ['stats', 'wall'].map(v => h('button', { class: 'btn sm' + (OpenState.view === v ? ' on' : ''), onclick: () => { OpenState.view = v; draw(lastList); $$('.vbtn', stage).forEach(b => b.classList.toggle('on', b.dataset.v === v)); } }, v === 'stats' ? '📊 통계' : '🧱 응답 모아보기')).map((b, i) => { b.classList.add('vbtn'); b.dataset.v = ['stats', 'wall'][i]; return b; }),
       act.type === 'ox' || act.answer ? h('button', { class: 'btn sm', onclick: e => { e.target.textContent = '정답: ' + (act.answer || '-'); } }, '정답 공개') : null,
@@ -186,7 +201,7 @@ function renderOpen() {
     lastList = list;
     const latest = latestBy(list, r => r.num + '|' + r.name);
     respondentBar(latest, count);
-    body.replaceChildren(OpenState.view === 'stats' ? statsView(act, latest) : wallBox(latest, room, act.q, () => draw(lastList)));
+    body.replaceChildren(...(OpenState.view === 'stats' ? [statsView(act, latest), h('div', { class: 'open-cards-below' }, wallBox(latest, room, act.q, () => draw(lastList)))] : [wallBox(latest, room, act.q, () => draw(lastList))]));
   };
   if (room) OpenState.unsub = Live.watchResps(room, act.id, draw); else draw([]);
   View.cleanup.push(() => OpenState.unsub && OpenState.unsub());
@@ -228,11 +243,11 @@ function wallBox(list, room, q, redraw) {
       r.gp ? h('span', { class: 'badge-gp' }, '🏆 그랑프리') : null,
       r.ai ? h('span', { class: 'badge-ai', title: r.aiWhy || '' }, '✨ AI') : null,
       r.star ? h('span', { class: 'badge-star' }, '👍 추천') : null),
-    r.kind === 'close' ? h('div', { class: 'wc-body' }, h('div', { class: 'wc-sec' }, h('b', null, '📔 배움일기'), r.summary || '')) : h('div', { class: 'wc-body' }, ansText(r.answer)),
+    h('div', { class: 'wc-body' }, r.kind === 'close' ? (r.summary || '') : ansText(r.answer)),
     r.ai && r.aiWhy ? h('div', { class: 'wc-why' }, '✨ ', r.aiWhy) : null,
     h('div', { class: 'wc-act' },
-      h('button', { class: 'like' + (r.star ? ' on' : ''), title: '잘한 응답으로 추천', onclick: e => { e.stopPropagation(); Live.updateResp(room, r.id, { star: !r.star }); } }, r.star ? '👍 추천함' : '👍 추천'),
-      h('button', { class: 'gp-btn' + (r.gp ? ' on' : ''), title: r.gp ? '그랑프리 취소' : '그랑프리 상패 주기', onclick: e => { e.stopPropagation(); GP.toggle(room, r, list); } }, r.gp ? '🏆 수상' : '🏆 그랑프리'),
+      h('button', { class: 'like' + (r.star ? ' on' : ''), title: '잘한 응답으로 추천', onclick: e => { e.stopPropagation(); Live.updateResp(room, r.id, { star: !r.star }); } }, r.star ? '👍 추천함' : '👍'),
+      h('button', { class: 'gp-btn' + (r.gp ? ' on' : ''), title: r.gp ? '그랑프리 취소' : '그랑프리 상패 주기', onclick: e => { e.stopPropagation(); GP.toggle(room, r, list); } }, r.gp ? '🏆 수상' : '🏆'),
       r.gp ? h('button', { class: 'x', title: '상패 다시 보기', onclick: e => { e.stopPropagation(); GP.ceremony(r); } }, '🎖') : null,
       r.kind === 'close' ? h('button', { class: 'x', title: '관찰 메모로', onclick: e => { e.stopPropagation(); addMemoQuick(r.num, r.name, `[마무리 ${r.date}] ${r.appeal || ''}`); } }, '📝') : null,
       h('span', { class: 'grow' }),
@@ -312,12 +327,12 @@ function renderShare() {
   PageAct = act ? { kind: 'share', act } : null;
   const side = h('div', { class: 'open-side' },
     h('div', { class: 'row' }, h('h3', { class: 'grow' }, '🤝 모둠 활동'), h('button', { class: 'btn sm primary', onclick: () => editShare(key) }, '+ 활동')),
-    acts.length ? h('div', { class: 'act-list' }, acts.map(a => h('div', { class: 'act-item' + (a.id === ShareState.actId ? ' on' : ''), onclick: () => { ShareState.actId = a.id; renderShare(); } },
-      h('div', { class: 'row' }, h('small', { class: 'muted grow' }, a.date || ''), h('button', { class: 'x', onclick: e => { e.stopPropagation(); editShare(key, a); } }, '✎')), h('b', { class: 'clamp2' }, a.title)))) :
+    acts.length ? foldBox('sharelist', `📋 활동 목록 (${acts.length})`, h('div', { class: 'act-list' }, acts.map(a => h('div', { class: 'act-item' + (a.id === ShareState.actId ? ' on' : ''), onclick: () => { ShareState.actId = a.id; renderShare(); } },
+      h('div', { class: 'row' }, h('small', { class: 'muted grow' }, a.date || ''), h('button', { class: 'x', onclick: e => { e.stopPropagation(); editShare(key, a); } }, '✎')), h('b', { class: 'clamp2' }, a.title))))) :
       emptyPic('🤝', '모둠 활동 만들기', h('button', { class: 'btn primary lg', onclick: () => editShare(key) }, '+ 활동')),
     h('div', { class: 'card soft small' }, qrPanel(false, PageAct)));
   const main = h('div', { class: 'open-main' });
-  root.append(h('div', { class: 'open-layout' }, side, main));
+  root.append(sideFold(h('div', { class: 'open-layout' }, side, main)));
   ShareState.unsub && ShareState.unsub();
   if (!act) { main.append(h('div', { class: 'empty' }, '모둠 활동을 만들면 활동마다 전용 QR이 생겨요. 모둠 대표가 그 QR로 발표 자료(글·이미지·영상 링크)를 올리고, 올라온 자료는 바로 발표 화면이 됩니다.')); return; }
   const room = S.room();
@@ -327,7 +342,6 @@ function renderShare() {
     actStatus(PageAct),
     h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow q-title' }, act.title),
       h('button', { class: 'btn', title: '학생 휴대폰에 보일 응답지를 미리 봅니다', onclick: () => studentPreview('share', act) }, '📱 응답지 미리보기'),
-      h('button', { class: 'btn primary', onclick: () => showQRBig({ kind: 'share', act }) }, '📱 이 활동 QR'),
       h('button', { class: 'btn', onclick: () => Groups.open() }, '👥 모둠 짜기'),
       h('button', { class: 'btn primary', onclick: () => subs.length ? presentShare(act, subs, 0) : toast('아직 제출한 모둠이 없습니다', 'warn') }, '🖥 발표 시작')),
     act.guide ? h('div', { class: 'guide' }, act.guide) : null,
@@ -486,16 +500,22 @@ function renderClose() {
   PageAct = { kind: 'close', act };
   const tbl = h('div', { class: 'close-wall' }), count = h('div', { class: 'resp-count' }), compBox = h('div', { class: 'comp-stats' });
   const date = h('input', { type: 'date', value: act.date, onchange: e => { CloseState.date = e.target.value; renderClose(); } });
-  root.append(h('div', { class: 'open-stage' },
+  const closeSide = h('div', { class: 'open-side' },
+    h('h3', null, '🌱 배움마무리'), h('div', { class: 'row gap' }, h('span', { class: 'small muted' }, '날짜'), date),
+    h('div', { class: 'card soft small' }, h('b', null, act.title), h('div', { class: 'small muted' }, act.date)),
+    h('div', { class: 'card soft small' }, qrPanel(false, PageAct)));
+  const closeMain = h('div', { class: 'open-main' });
+  root.append(sideFold(h('div', { class: 'open-layout' }, closeSide, closeMain)));
+  closeMain.append(h('div', { class: 'open-stage' },
     actStatus(PageAct),
-    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '🌱 배움마무리'), date,
+    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📔 ', act.title),
       h('button', { class: 'btn', title: '학생 휴대폰에 보일 응답지를 미리 봅니다', onclick: () => studentPreview('close', act) }, '📱 응답지 미리보기'),
-      h('button', { class: 'btn primary', onclick: () => showQRBig({ kind: 'close', act }) }, '📱 이 활동 QR'),
       h('button', { class: 'btn', onclick: e => toggleFull(e.currentTarget.closest('.open-stage')) }, '🖥 크게 공유'),
       h('button', { class: 'btn', onclick: editCloseCfg }, '✎ 질문 수정'),
       h('button', { class: 'btn', onclick: exportExcel }, '⬇️ 학생부용 엑셀')),
-    h('div', { class: 'notice' }, RECORD_NOTICE),
-    h('div', { class: 'grid2 close-q' }, h('div', { class: 'card soft' }, h('b', null, '① 배움일기 '), h('span', { class: 'tag' }, '📢 함께 봐요'), ' ', act.summary), h('div', { class: 'card soft' }, h('b', null, '② 역량 어필 '), h('span', { class: 'tag' }, '🔒 선생님만'), ' ', act.appeal)),
+    h('details', { class: 'close-mini' },
+      h('summary', null, h('span', { class: 'cm-chip' }, '① 배움일기 📢'), h('span', { class: 'cm-chip' }, '② 역량 어필 🔒'), h('span', { class: 'cm-chip pin', title: RECORD_NOTICE }, '📌 학생부 참고'), h('span', { class: 'cm-more' }, '질문 보기')),
+      h('div', { class: 'cm-body' }, h('div', null, h('b', null, '① 배움일기 '), h('small', null, '(📢 함께 봐요) '), act.summary), h('div', null, h('b', null, '② 역량 어필 '), h('small', null, '(🔒 선생님만) '), act.appeal), h('div', { class: 'small muted' }, '📌 ', RECORD_NOTICE))),
     h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }), compBox,
       h('button', { class: 'btn', title: '역량 어필·고른 역량·참여도는 함께 보는 화면에 나오지 않아요. 여기서 선생님만 봅니다', onclick: () => Lock.guard(() => appealView(lastLatest, act), '🔒 역량 어필 보기 — 비밀번호') }, '🔒 역량 어필 보기')), tbl));
   CloseState.unsub && CloseState.unsub();
