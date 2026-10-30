@@ -91,9 +91,59 @@ const Picker = {
     const key = e => { if (e.key === 'Escape') close(); if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!go.disabled) spin(); } };
     document.addEventListener('keydown', key);
     st.append(h('div', { class: 'pres-top' }, h('b', null, '🎲 뽑기'), h('span', { class: 'muted' }, ` 오늘 ${pool0.length}명`), h('span', { class: 'grow' }),
-      h('label', null, noRep, ' 중복 없이'), h('button', { class: 'btn', onclick: () => { this.used.clear(); hist.replaceChildren(); } }, '↺'), h('button', { class: 'btn', onclick: close }, '✕')),
+      h('label', null, noRep, ' 중복 없이'), h('button', { class: 'btn', onclick: () => { this.used.clear(); hist.replaceChildren(); } }, '↺'),
+      Store.get(OrderPick.key(), null) ? h('button', { class: 'btn', title: '지난번에 뽑은 발표 순서를 이어서 봐요', onclick: () => { close(); OrderPick.open(false); } }, '📋 지난 순서 이어 보기') : null,
+      h('button', { class: 'btn primary', title: '재적생 모두의 발표 순서를 한 번에 뽑아요 (5·4·3·2·1 짠!)', onclick: () => { close(); OrderPick.open(true); } }, '📋 전체 발표 순서 뽑기'), h('button', { class: 'btn', onclick: close }, '✕')),
       h('div', { class: 'pick-stage' }, num, name, go), hist);
     document.body.append(st);
+  }
+};
+
+/* ---------- 📋 전체 발표 순서 뽑기 (재적생 모두, 5·4·3·2·1 짠!) ---------- */
+const OrderPick = {
+  key() { const c = S.cls(); return c ? 'order:' + c.id : null; },
+  async open(fresh = false) {
+    const c = S.cls(); if (!c) return toast('학급을 먼저 만드세요', 'warn');
+    const all = S.students(c); if (!all.length) return toast('학급 명단을 먼저 넣어 주세요', 'warn');
+    let saved = Store.get(this.key(), null);
+    if (fresh || !saved || !saved.list?.length) saved = await this.shuffle(c, all);
+    else if (saved) this.show(c, saved, false);
+  },
+  async shuffle(c, all) {
+    const arr = all.map(s => String(s.num));
+    for (let i = arr.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [arr[i], arr[j]] = [arr[j], arr[i]]; }
+    const o = { list: arr, done: [], cur: 0, date: todayStr(), at: Date.now() };
+    await diceCountdown('발표 순서를 섞는 중');
+    Store.set(this.key(), o); this.show(c, o, true);
+    return o;
+  },
+  show(c, o, reveal) {
+    document.querySelector('.order-present')?.remove();
+    const studs = S.students(c, true), who = n => studs.find(s => String(s.num) === String(n));
+    const save = () => Store.set(this.key(), o);
+    const st = h('div', { class: 'present order-present' });
+    const grid = h('div', { class: 'order-grid' + (o.list.length > 30 ? ' many' : '') });
+    const now = h('div', { class: 'order-now' });
+    const draw = () => {
+      const s = who(o.list[o.cur]);
+      now.replaceChildren(h('small', null, `지금 발표 · ${o.cur + 1} / ${o.list.length}`), h('div', { class: 'on-name' }, s ? h('span', null, h('b', null, `${o.cur + 1}`), ` ${s.num}번 ${s.name}`) : '끝!'),
+        h('div', { class: 'row gap' }, h('button', { class: 'btn lg', disabled: o.cur <= 0, onclick: () => { o.cur--; save(); draw(); } }, '◀ 이전'),
+          h('button', { class: 'btn lg primary', onclick: () => { if (!o.done.includes(o.list[o.cur])) o.done.push(o.list[o.cur]); if (o.cur < o.list.length - 1) o.cur++; save(); draw(); } }, '✔ 발표 끝 · 다음 ▶')));
+      grid.replaceChildren(...o.list.map((n, i) => { const s = who(n); return h('button', { class: 'order-card' + (i === o.cur ? ' cur' : '') + (o.done.includes(n) ? ' done' : ''), style: reveal ? { animationDelay: (i * 70) + 'ms' } : null,
+        title: '눌러서 이 학생으로 옮기기 · 두 번 누르면 완료 표시', onclick: () => { o.cur = i; save(); draw(); }, ondblclick: () => { o.done.includes(n) ? o.done.splice(o.done.indexOf(n), 1) : o.done.push(n); save(); draw(); } },
+        h('span', { class: 'oc-no' }, i + 1), h('span', { class: 'oc-name' }, s ? s.name : `${n}번`), h('small', null, `${n}번`)); }));
+      if (reveal) { grid.classList.add('reveal'); reveal = false; setTimeout(() => grid.classList.remove('reveal'), o.list.length * 70 + 600); }
+    };
+    const close = () => { st.remove(); document.removeEventListener('keydown', key); };
+    const key = e => { if (e.target.closest('input,textarea')) return; if (e.key === 'Escape') close(); else if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); if (o.cur < o.list.length - 1) { o.cur++; save(); draw(); } } else if (e.key === 'ArrowLeft') { if (o.cur > 0) { o.cur--; save(); draw(); } } };
+    document.addEventListener('keydown', key);
+    const copy = () => { const t = o.list.map((n, i) => `${i + 1}. ${n}번 ${who(n)?.name || ''}`).join('\n'); navigator.clipboard?.writeText(`${c.name} 발표 순서 (${o.date})\n` + t).then(() => toast('발표 순서를 복사했어요'), () => toast('복사가 막혀 있어요', 'warn')); };
+    st.append(h('div', { class: 'pres-top' }, h('b', null, '📋 발표 순서'), h('span', { class: 'muted' }, ` ${c.name} · 재적 ${o.list.length}명 · ${o.date}`), h('span', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: copy }, '📋 복사'),
+      h('button', { class: 'btn', onclick: async () => { if (await confirmBox('발표 순서를 새로 뽑을까요?', '다시 뽑기')) { close(); OrderPick.open(true); } } }, '🎲 다시 뽑기'),
+      h('button', { class: 'btn', onclick: close }, '✕')),
+      now, grid);
+    document.body.append(st); draw();
   }
 };
 
@@ -309,7 +359,34 @@ function diceCountdown(title = '자리를 섞는 중') {
 /* ---------- 📚 과목별 성취기준 ---------- */
 const Standards = {
   all() { return Store.get('standards', {}); },
-  get(subj) { return this.all()[subj] || []; },
+  /* 저장한 것이 있으면 그것, 없으면 2022 개정 국어과 기본 성취기준 */
+  get(subj) { const a = this.all(); return a[subj] || this.builtin(subj); },
+  builtin(subj) { return ((typeof STANDARDS_2022 !== 'undefined' && STANDARDS_2022[subj]) || []).map(([code, text]) => ({ code, text })); },
+  isSaved(subj) { return !!this.all()[subj]; },
+  reset(subj) { const a = this.all(); delete a[subj]; Store.set('standards', a); },
+  /* 약칭 → 과목 이름 (국어과) */
+  ABBR: { '공국1': '공통국어1', '공국2': '공통국어2', '화언': '화법과 언어', '독작': '독서와 작문', '문학': '문학', '주탐': '주제 탐구 독서', '문영': '문학과 영상', '직의': '직무 의사소통', '독토': '독서 토론과 글쓰기', '매의': '매체 의사소통', '언탐': '언어생활 탐구' },
+  /* 성취수준·교육과정 문서에서 과목별 성취기준만 뽑기 → { 과목: [{code, text}] } */
+  extract(text) {
+    const t = String(text).replace(/<br>/g, ' ');
+    const re = /\[\s*(\d{2})\s*([가-힣]{1,5})\s*(\d)?\s*[-–]?\s*(\d{2})\s*[-–]\s*(\d{2})\s*\]([^|\n\[]{0,400})/g;
+    const cand = new Map(); let m;
+    while ((m = re.exec(t))) {
+      const [, y, ab, n, a, b, rest] = m;
+      const code = `[${y}${ab}${n ? n + '-' : ''}${a}-${b}]`, key = ab + (n || '');
+      const s = rest.replace(/\s+/g, ' ').trim().match(/^(.{8,300}?다\.)/);
+      if (!cand.has(code)) cand.set(code, { key, texts: new Map() });
+      if (s) { const c = cand.get(code).texts; c.set(s[1], (c.get(s[1]) || 0) + 1); }
+    }
+    const out = {};
+    for (const [code, { key, texts }] of [...cand.entries()].sort((x, y) => x[0].localeCompare(y[0], 'ko', { numeric: true }))) {
+      if (!texts.size) continue;
+      const best = [...texts.entries()].sort((x, y) => y[1] - x[1] || x[0].length - y[0].length)[0][0];
+      const subj = this.ABBR[key] || key;
+      (out[subj] ||= []).push({ code, text: best });
+    }
+    return out;
+  },
   set(subj, list) { const a = this.all(); a[subj] = list; Store.set('standards', a); },
   /* "[12문학01-01] 내용" 형식. 코드만 있는 줄 다음 줄이 내용이어도 됨 */
   parse(text) {

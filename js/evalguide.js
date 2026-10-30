@@ -7,6 +7,9 @@
 const DocText = {
   /* 압축 풀기 — 한글 파일은 압축 끝에 쓰레기 바이트가 붙는 일이 많아(크롬은 이때 전체를 실패 처리), 풀린 만큼은 살려서 씀 */
   async inflateRaw(u8) {
+    // pako가 있으면 그것으로 (끝의 군더더기를 무시하고 끝까지 풀어 줌). 크롬 기본 풀기는 큰 파일에서 중간에 멈출 수 있음
+    if (!window.pako) await new Promise(res => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/pako/2.1.0/pako.min.js'; sc.onload = res; sc.onerror = res; document.head.append(sc); setTimeout(res, 6000); });
+    if (window.pako) { try { return window.pako.inflateRaw(u8); } catch (e) { console.warn('pako 풀기 실패 — 기본 방식으로', e); } }
     const rd = new Blob([u8]).stream().pipeThrough(new DecompressionStream('deflate-raw')).getReader();
     const chunks = []; let n = 0;
     try { for (;;) { const { done, value } = await rd.read(); if (done) break; chunks.push(value); n += value.length; } }
@@ -108,19 +111,41 @@ const DocText = {
     const secs = z.FullPaths.map((p, i) => ({ p, f: z.FileIndex[i] })).filter(x => /Contents\/section\d+\.xml$/i.test(x.p))
       .sort((a, b) => +a.p.match(/section(\d+)/i)[1] - +b.p.match(/section(\d+)/i)[1]);
     if (!secs.length) throw new Error('HWPX 본문을 찾지 못했습니다');
+    // 표는 칸 구조를 지켜 '| 칸 | 칸 |' 줄로 (한글 HWP와 같은 방식)
+    const kids = (el, name) => Array.from(el.children).filter(e => e.localName === name);
+    const runText = pEl => kids(pEl, 'run').map(r => Array.from(r.children).filter(e => e.localName === 't').map(e => e.textContent).join('')).join('');
+    const block = el => {                     // 문단·표가 섞인 묶음 → 글
+      let out = '';
+      for (const c of Array.from(el.children)) {
+        if (c.localName === 'p') {
+          const t = runText(c); if (t.trim()) out += t + '\n';
+          for (const r of kids(c, 'run')) for (const x of Array.from(r.children)) { if (x.localName === 'tbl') out += table(x); else if (x.localName !== 't') out += deep(x); }
+        } else if (c.localName === 'tbl') out += table(c);
+        else out += deep(c);
+      }
+      return out;
+    };
+    const deep = el => { let o = ''; for (const c of Array.from(el.children)) { if (c.localName === 'tbl') o += table(c); else if (c.localName === 'subList' || c.localName === 'p') o += block(c.localName === 'p' ? { children: [c] } : c); else o += deep(c); } return o; };
+    const table = tb => {
+      const R = +tb.getAttribute('rowCnt') || 0, C = +tb.getAttribute('colCnt') || 0, cells = [];
+      let nested = false;
+      for (const tr of kids(tb, 'tr')) for (const tc of kids(tr, 'tc')) {
+        const a = kids(tc, 'cellAddr')[0], sp = kids(tc, 'cellSpan')[0], sub = kids(tc, 'subList')[0];
+        const txt = sub ? block(sub) : '';
+        if (/^\|/m.test(txt)) nested = true;
+        cells.push({ row: +(a?.getAttribute('rowAddr') || 0), col: +(a?.getAttribute('colAddr') || 0), rs: +(sp?.getAttribute('rowSpan') || 1), cs: +(sp?.getAttribute('colSpan') || 1), txt });
+      }
+      cells.sort((x, y) => x.row - y.row || x.col - y.col);
+      if (nested || R <= 1 || C <= 1) return '\n' + cells.map(c => c.txt.replace(/\s+$/, '')).filter(Boolean).join('\n') + '\n';
+      const g = Array.from({ length: R }, () => Array(C).fill(''));
+      for (const c of cells) { const t = c.txt.split('\n').map(x => x.trim()).filter(Boolean).join('<br>').replace(/\|/g, '｜'); for (let r = c.row; r < Math.min(R, c.row + c.rs); r++) for (let k = c.col; k < Math.min(C, c.col + c.cs); k++) g[r][k] = t; }
+      return '\n' + g.map(row => '| ' + row.join(' | ') + ' |').join('\n') + '\n\n';
+    };
     let text = '';
     for (const { f } of secs) {
       const xml = new TextDecoder('utf-8').decode(new Uint8Array(f.content));
       const doc = new DOMParser().parseFromString(xml, 'application/xml');
-      const paras = Array.from(doc.getElementsByTagName('*')).filter(e => e.localName === 'p');
-      const seen = new Set();
-      for (const pEl of paras) {
-        // 표 안 문단이 바깥 문단에 중복되지 않도록 가장 안쪽 run 의 글자만
-        const runs = Array.from(pEl.children).filter(e => e.localName === 'run');
-        const t = runs.map(r => Array.from(r.children).filter(e => e.localName === 't').map(e => e.textContent).join('')).join('');
-        if (seen.has(pEl)) continue; seen.add(pEl);
-        if (t.trim()) text += t + '\n';
-      }
+      text += block(doc.documentElement) + '\n';
     }
     return text.trim();
   },
@@ -261,6 +286,8 @@ async function uploadEvalDocRun(tab, f) {
       } catch (e) {
         console.error(e);
         if (tab === 'written') { Store.set('evalguide:written', ruleExamNotice(src.text)); Store.set('local:evalView:written', 'guide'); toast('AI 정리에 실패해 글에서 자동으로 골라냈어요. 확인 후 ✏️ 고쳐 주세요 (' + (e.message || '') + ')', 'warn', 8000); box.close(); renderEval(); return; }
+        const rg = rulePerfGuide(src.text);
+        if (rg) { Store.set('evalguide:' + tab, rg); Store.set('local:evalView:' + tab, 'guide'); toast('AI 정리에 실패해 계획서의 표에서 골라 만들었어요. 확인 후 ✏️ 내용 고치기로 다듬어 주세요', 'warn', 8000); box.close(); renderEval(); return; }
         toDoc(); Store.set('local:evalView:' + tab, 'src');
         toast('글자는 읽었지만 AI 정리에 실패했어요 (' + (e.message || '') + '). [✨ 다시 만들기]를 눌러 주세요', 'err', 8000);
       }
@@ -268,9 +295,9 @@ async function uploadEvalDocRun(tab, f) {
       Store.set('evalguide:written', ruleExamNotice(src.text)); Store.set('local:evalView:written', 'guide');
       toast('AI 없이 글에서 자동으로 골라냈어요. 확인 후 ✏️ 고쳐 주세요', 'warn', 6000);
     } else {
-      toDoc();
-      Store.set('local:evalView:' + tab, 'doc');
-      toast('AI를 쓸 수 없어 글자만 옮겼어요. Vercel에 AI 키가 있는지 확인해 주세요', 'warn', 6000);
+      const rg = rulePerfGuide(src.text);
+      if (rg) { Store.set('evalguide:' + tab, rg); Store.set('local:evalView:' + tab, 'guide'); toast('계획서의 표에서 영역·반영 비율·채점 기준을 골라 학생용 안내를 만들었어요. ✏️ 내용 고치기로 다듬어 주세요', 'ok', 6000); }
+      else { toDoc(); Store.set('local:evalView:' + tab, 'doc'); toast('표를 찾지 못해 글자만 옮겼어요. 안내문 편집에서 고쳐 주세요', 'warn', 6000); }
     }
   } catch (e) { console.error(e); box.close(); modal({ title: '😥 파일을 읽지 못했어요', body: h('div', { class: 'stack' }, h('p', null, e.message || String(e)), h('p', { class: 'muted small' }, `파일: ${f.name} (${(f.size / 1024).toFixed(0)}KB)`), tipI('가장 확실한 방법: 한글에서 [파일 → 다른 이름으로 저장 → PDF]로 저장해 올리기')) }); renderEval(); return; }
   box.close(); renderEval();
@@ -303,13 +330,15 @@ function evalGuideViewInner(tab, ed, saveDoc) {
   const regen = h('button', { class: 'btn', onclick: () => withBusy(regen, '다시 만드는 중…', async () => {
     const req = await promptBox('어떻게 바꿀까요? (비우면 그대로 다시 만들기)', '예: 더 쉽게, 채점 기준을 자세히'); if (req === null) return;
     const imgs = !src?.text || src.text.replace(/\s/g, '').length < 150 ? Array.from({ length: 4 }, (_, i) => Store.get(`evalpdf:${tab}:${i}`)).filter(Boolean) : [];
-    const ex = req.startsWith('예:') ? '' : req; let ng; if (tab === 'written') { try { ng = await aiExamNotice(src?.text || '', imgs, ex); } catch (e) { console.warn(e); ng = ruleExamNotice(src?.text || ''); toast('AI 정리에 실패해 자동으로 골라냈어요', 'warn', 5000); } } else ng = await aiEvalGuide(tab, src?.text || '', imgs, ex); Store.set('evalguide:' + tab, ng); renderEval();
+    const ex = req.startsWith('예:') ? '' : req; let ng; if (tab === 'written') { try { ng = await aiExamNotice(src?.text || '', imgs, ex); } catch (e) { console.warn(e); ng = ruleExamNotice(src?.text || ''); toast('AI 정리에 실패해 자동으로 골라냈어요', 'warn', 5000); } }
+    else { try { if (!(await AI.available())) throw new Error('AI 없음'); ng = await aiEvalGuide(tab, src?.text || '', imgs, ex); } catch (e) { console.warn(e); ng = rulePerfGuide(src?.text || ''); if (!ng) throw new Error('계획서에서 평가 표를 찾지 못했어요'); toast('AI 없이 계획서의 표에서 다시 만들었어요', 'warn', 5000); } }
+    Store.set('evalguide:' + tab, ng); renderEval();
   }) }, '✨ 다시 만들기');
   return h('div', { class: 'stack' },
     h('div', { class: 'row gap wrap' }, h('button', { class: 'btn primary', onclick: () => g.kind === 'exam' ? presentExam(g) : presentGuide(g, tab) }, '🖥 크게 보며 설명'),
-      regen, g.kind === 'exam' ? h('button', { class: 'btn', onclick: () => editExam(g) }, '✏️ 내용 고치기') : null, h('button', { class: 'btn', onclick: () => { ed.innerHTML = g.kind === 'exam' ? examToHTML(g) : guideToHTML(g); saveDoc(); Store.set('local:evalView:' + tab, 'doc'); renderEval(); } }, '✏️ 글로 옮겨 고치기'),
+      regen, h('button', { class: 'btn', onclick: () => g.kind === 'exam' ? editExam(g) : editGuide(g, tab) }, '✏️ 내용 고치기'), h('button', { class: 'btn', onclick: () => { ed.innerHTML = g.kind === 'exam' ? examToHTML(g) : guideToHTML(g); saveDoc(); Store.set('local:evalView:' + tab, 'doc'); renderEval(); } }, '✏️ 글로 옮겨 고치기'),
       h('span', { class: 'grow' }), src ? h('small', { class: 'muted' }, '📎 ', src.name) : null, h('button', { class: 'btn sm', onclick: () => uploadEvalDoc(tab) }, '다른 파일')),
-    target, g.auto ? h('div', { class: 'eg-note' }, '🔎 AI 없이 글에서 자동으로 골라낸 결과예요. 날짜·범위가 맞는지 확인하고 [✏️ 내용 고치기]로 바로잡아 주세요.') : null,
+    target, g.auto ? h('div', { class: 'eg-note' }, g.kind === 'exam' ? '🔎 AI 없이 글에서 자동으로 골라낸 결과예요. 날짜·범위가 맞는지 확인하고 [✏️ 내용 고치기]로 바로잡아 주세요.' : '🔎 AI 없이 계획서의 표에서 골라낸 결과예요. 학생에게 필요 없는 내용은 [✏️ 내용 고치기]에서 빼거나 쉬운 말로 다듬어 주세요.') : null,
     g.kind === 'exam' ? renderExam(g) : renderGuide(g, { tab }));
 }
 
@@ -457,6 +486,98 @@ function examFromTables(text, t) {
   if (!timetable.length && !rangeRow) return null;
   return { grade, timetable, exam, range, format };
 }
+/* =========================================================
+   📋 AI 없이: 평가 계획서의 표에서 수행평가 학생용 안내 만들기
+   (평가 종류와 반영비율 표 · 수행평가 세부기준 표 · 결시자 처리 등)
+   ========================================================= */
+function rulePerfGuide(text) {
+  const tbs = textTables(text);
+  const nz = x => String(x || '').replace(/\s+/g, '');
+  const dd = row => row.filter((c, i) => i === 0 || c !== row[i - 1]);           // 합친 칸 때문에 겹친 글자 정리
+  const one = x => String(x || '').replace(/\n+/g, ' ').replace(/\s+/g, ' ').trim();
+  const lines = String(text).split(/\r?\n/).map(l => l.trim()).filter(l => l && !l.startsWith('|'));
+  // 과목 이름
+  let subject = '';
+  for (const tb of tbs) for (let r = 0; r < tb.rows.length - 1 && !subject; r++) { const k = tb.rows[r].findIndex(c => nz(c) === '과목'); if (k >= 0) subject = one(tb.rows[r + 1][k]); }
+  subject ||= Brand.get().subject;
+  // ① 평가 종류와 반영비율 표
+  const rt = tbs.find(tb => tb.rows.some(r => /^평가종류$/.test(nz(r[0]))));
+  const items = [], schedule = [], notes = [];
+  let wInfo = [], perfTotal = 0, wTotal = 0, tieNote = '';
+  if (rt) {
+    const row = re => rt.rows.find(r => re.test(nz(r[0]))) || [];
+    const kind = row(/^평가종류$/), area = row(/^시기\/?영역|^영역/), maxr = row(/^영역만점/), when = row(/^평가시기/), elem = row(/^평가요소/), std = row(/^성취기준/), tie = row(/동점자/);
+    const ratioRow = row(/^반영비율$/);
+    const seen = new Set();
+    kind.forEach((k, c) => {
+      if (!c) return;
+      if (/수행/.test(k)) {
+        const nm = area[c] || ''; if (!nm || seen.has(nm)) return; seen.add(nm);
+        const m = String(maxr[c] || ''), pct = +(m.match(/(\d+(?:\.\d+)?)\s*%/) || [])[1] || 0, pts = +(m.match(/(\d+)\s*점/) || [])[1] || 0;
+        const ls = nm.split('\n').map(x => x.trim()).filter(Boolean), type = ls.length > 1 && /^\(.*\)$/.test(ls[ls.length - 1]) ? ls.pop().slice(1, -1) : '';
+        items.push({ name: ls.join(' '), area: type, ratio: pct, max: pts, when: one(when[c]), elems: String(elem[c] || '').split('\n').map(x => x.replace(/^[-·•]\s*/, '').trim()).filter(Boolean), std: one(std[c]) });
+        perfTotal += pct;
+        if (tie[c] && /순위/.test(tie[c])) tieNote += `${tieNote ? ', ' : ''}${one(tie[c])} ${ls.join(' ')}`;
+      } else if (/정기|지필/.test(k)) {
+        const a = one(area[c]); if (a && !wInfo.some(x => x.a === a)) wInfo.push({ a, when: one(when[c]) });
+      }
+    });
+    const wr = kind.findIndex(k => /정기|지필/.test(k)); if (wr > 0) wTotal = +(String(ratioRow[wr] || '').match(/(\d+)/) || [])[1] || 0;
+    if (!perfTotal) { const pr = kind.findIndex(k => /수행/.test(k)); if (pr > 0) perfTotal = +(String(ratioRow[pr] || '').match(/(\d+)/) || [])[1] || 0; }
+  }
+  // ② 수행평가 세부기준 표 (영역마다 하나)
+  const det = tbs.filter(tb => /^평가영역명/.test(nz(tb.rows[0]?.[0])));
+  for (const tb of det) {
+    const r0 = dd(tb.rows[0]), name = one(r0[1]);
+    const total = +((r0.find((c, i) => i > 1 && /점/.test(c) && /영역만점/.test(nz(r0[i - 1]))) || '').match(/(\d+)/) || [])[1] || 0;
+    let it = items.find(x => nz(x.name) === nz(name) || nz(name).includes(nz(x.name)) || nz(x.name).includes(nz(name)));
+    if (!it) { it = { name, area: '', ratio: 0, max: total, when: '', elems: [] }; items.push(it); }
+    if (!it.max) it.max = total;
+    const task = tb.rows.find(r => /^수행과제/.test(nz(r[0]))); if (task) it.task = one(dd(task)[1]);
+    const meth = tb.rows.filter(r => /평가방법/.test(nz(r[0])) || (r.some(c => /[☑■]/.test(c)) && !/평가요소/.test(nz(r[0]))));
+    const how = []; meth.forEach(r => dd(r).forEach(c => (String(c).match(/[☑■]\s*[^□☑■\n]+/g) || []).forEach(x => { const t = x.replace(/[☑■]/, '').trim(); if (t && !how.includes(t)) how.push(t); })));
+    it.howList = how;
+    const hi = tb.rows.findIndex(r => r.some(c => /^평가요소$/.test(nz(c))) && r.some(c => /배점/.test(c)));
+    const crit = new Map();
+    if (hi >= 0) for (const raw of tb.rows.slice(hi + 1)) {
+      if (/^기본점수/.test(nz(raw[0]))) { const b = dd(raw); const pairs = []; for (let i = 0; i < b.length - 1; i += 2) if (b[i + 1]) pairs.push(`${one(b[i])} ${one(b[i + 1])}`); it.basic = pairs.join(' · '); continue; }
+      const r = dd(raw); if (r.length < 3) continue;
+      const pts = (String(r[r.length - 1]).match(/(\d+)\s*점/) || [])[1]; if (!pts) continue;
+      const el = String(r[0]).split('\n').map(x => x.trim()).filter(Boolean), elPts = (el.join(' ').match(/\((\d+)\)\s*$/) || [])[1];
+      const elName = el.filter(x => !/^\(\d+\)$/.test(x)).join(' ').replace(/\s*\(\d+\)\s*$/, '');
+      const mid = r.slice(1, -1), facet = mid.find(c => /^(내용|형식|태도|과정|결과|표현|이해)\s*면?$/.test(nz(c)) || (nz(c).length <= 5 && /면$/.test(nz(c))));
+      const desc = one(mid.filter(c => c !== facet && nz(c) !== nz(r[0])).sort((a, b) => b.length - a.length)[0] || '');
+      const key = elName + '|' + (facet || '');
+      if (!crit.has(key)) crit.set(key, { name: facet ? `${elName} — ${one(facet)}` : elName, elPts, levels: [] });
+      crit.get(key).levels.push({ label: `${pts}점`, points: `${pts}점`, desc });
+    }
+    it.criteria = [...crit.values()].map(c => { const mx = Math.max(...c.levels.map(l => +l.points.replace(/\D/g, '') || 0)); c.levels.sort((a, b) => (+b.points.replace(/\D/g, '')) - (+a.points.replace(/\D/g, ''))); return { name: c.name, points: mx ? `${mx}점` : (c.elPts ? `${c.elPts}점` : ''), desc: c.levels[0]?.desc || '', levels: c.levels }; });
+  }
+  if (!items.length) return null;
+  // ③ 학생용 문장으로
+  const out = items.map(it => {
+    if (!it.ratio && it.max && !perfTotal) it.ratio = it.max;
+    if (it.when) schedule.push({ when: it.when, what: `${it.name}${it.area ? ` (${it.area})` : ''}` });
+    const howTxt = (it.howList || []).length ? `${it.howList.join(' · ')} 방식으로 평가해요.` : '';
+    return { name: it.name, area: it.area, ratio: it.ratio, when: it.when, how: [it.task ? `과제: ${it.task.replace(/[.。]$/, '')}.` : '', howTxt].filter(Boolean).join(' '),
+      what: (it.elems || []).length ? `평가 요소: ${it.elems.join(' / ')}` : '',
+      scoring: [it.max ? `영역 만점 ${it.max}점${it.ratio ? ` → 학기 성적에 ${it.ratio}% 반영` : ''}` : '', it.basic ? (/^기본\s*점수/.test(it.basic) ? it.basic : `기본 점수: ${it.basic}`) : ''].filter(Boolean).join(' · '),
+      criteria: it.criteria || [], tips: [] };
+  });
+  wInfo.filter(w => w.when && !/미실시/.test(w.a)).forEach(w => schedule.push({ when: w.when, what: `정기시험 ${w.a}` }));
+  // ④ 유의 사항: 결시·미응시·기본 점수·학적 변동 문장
+  let on = false;
+  for (const l of lines) {
+    if (/미응시|결시자|학적\s*변동/.test(l) && l.length < 60 && !/^\d+\s*\./.test(l)) { on = true; continue; }
+    if (on && /^\d+\s*[.)]/.test(l)) { if (!/다음과\s*같이/.test(l)) notes.push(l.replace(/^\d+\s*[.)]\s*/, '')); }
+    else if (on && notes.length && l.length < 40) on = false;
+  }
+  if (!notes.length) lines.filter(l => /결시|미제출|기본\s*점수|부정행위/.test(l) && l.length < 160).slice(0, 5).forEach(l => notes.push(l.replace(/^\d+\s*[.)]\s*/, '')));
+  if (tieNote) notes.push(`수행평가 점수가 같으면 ${tieNote} 순서로 비교해요.`);
+  const wText = wTotal ? ` (정기시험 ${wTotal}%)` : '';
+  return { auto: true, title: `${subject} 수행평가 안내`, summary: perfTotal ? `수행평가는 학기 성적의 ${perfTotal}%예요${wText}. 영역마다 채점 기준을 눌러 자세히 보세요.` : '영역마다 채점 기준을 눌러 자세히 보세요.',
+    items: out, schedule, notes: notes.slice(0, 8), faq: [] };
+}
 /* AI 없이 · 실패했을 때: 글에서 날짜·교시·범위를 규칙으로 골라내기 */
 function ruleExamNotice(text) {
   const tb = examFromTables(text, examTarget());
@@ -601,6 +722,56 @@ function examToHTML(g) {
 }
 
 /* 정기시험 안내 직접 고치기 */
+/* ✏️ 수행평가 안내 고치기 — 왼쪽에서 고치면 오른쪽 학생 화면이 바로 바뀜 */
+function editGuide(g0, tab) {
+  const g = JSON.parse(JSON.stringify(g0)); g.items ||= [];
+  const inp = (v, ph, cls = 'full') => { const i = h('input', { class: cls, placeholder: ph }); i.value = v ?? ''; return i; };
+  const area = (v, ph, rows = 3) => { const t = h('textarea', { class: 'full', rows, placeholder: ph }); t.value = v ?? ''; return t; };
+  const L = (l, el) => h('label', { class: 'stack' }, h('b', null, l), el);
+  const lines = t => t.value.split('\n').map(x => x.trim()).filter(Boolean);
+  const head = { title: inp(g.title, '안내 제목'), summary: inp(g.summary, '한 줄 요약') };
+  const notes = area((g.notes || []).join('\n'), '꼭 알아 두세요 — 한 줄에 하나', 4);
+  const sched = area((g.schedule || []).map(x => `${x.when} | ${x.what}`).join('\n'), '일정 — 언제 | 할 일', 3);
+  const faq = area((g.faq || []).map(x => `${x.q} | ${x.a}`).join('\n'), '자주 묻는 질문 — 질문 | 답', 3);
+  const itemBox = h('div', { class: 'stack' });
+  let F = [];
+  const drawItems = () => {
+    F = g.items.map(it => ({ it, name: inp(it.name, '평가 이름'), area: inp(it.area, '영역·유형', 'w200'), ratio: h('input', { type: 'number', class: 'w60', min: 0, max: 100, value: it.ratio ?? '' }), when: inp(it.when, '언제', 'w200'),
+      how: area(it.how, '어떻게 평가하나요', 2), what: area(it.what, '준비할 것 / 평가 요소', 2), scoring: area(it.scoring, '점수 계산 (만점·기본 점수 등)', 2), tips: area((it.tips || []).join('\n'), '좋은 점수를 받는 팁 — 한 줄에 하나', 2),
+      crit: area((it.criteria || []).map(c => `${c.name} | ${c.points || ''} | ${c.desc || ''}`).join('\n'), '채점 기준 — 요소 | 배점 | 한 줄 설명  (수준별 점수는 그대로 둬요)', 3) }));
+    itemBox.replaceChildren(...F.map((f, i) => h('div', { class: 'card stack ee-item' },
+      h('div', { class: 'row gap' }, h('b', { class: 'grow' }, `${i + 1}번 평가`),
+        i ? h('button', { class: 'btn sm', title: '위로', onclick: () => { collect(); [g.items[i - 1], g.items[i]] = [g.items[i], g.items[i - 1]]; drawItems(); redraw(); } }, '↑') : null,
+        h('button', { class: 'btn sm', title: '이 평가 빼기', onclick: () => { collect(); g.items.splice(i, 1); drawItems(); redraw(); } }, '🗑 빼기')),
+      L('이름', f.name), h('div', { class: 'row gap wrap' }, L('영역·유형', f.area), L('반영 비율(%)', f.ratio), L('언제', f.when)),
+      L('💡 어떻게', f.how), L('🎒 준비할 것', f.what), L('✅ 채점 기준', f.crit), L('🧮 점수 계산', f.scoring), L('⭐ 팁', f.tips))));
+    $$('input,textarea', itemBox).forEach(el => { el.addEventListener('input', redraw); });
+  };
+  const collect = () => {
+    g.title = head.title.value; g.summary = head.summary.value;
+    F.forEach(f => {
+      const old = f.it.criteria || [];
+      Object.assign(f.it, { name: f.name.value, area: f.area.value, ratio: f.ratio.value === '' ? '' : +f.ratio.value, when: f.when.value, how: f.how.value, what: f.what.value, scoring: f.scoring.value, tips: lines(f.tips),
+        criteria: lines(f.crit).map((l, k) => { const [name = '', points = '', desc = ''] = l.split('|').map(x => x.trim()); const o = old.find(c => c.name === name) || old[k] || {}; return { ...o, name, points, desc }; }) });
+    });
+    g.notes = lines(notes); g.schedule = lines(sched).map(l => { const [when = '', what = ''] = l.split('|').map(x => x.trim()); return { when, what }; });
+    g.faq = lines(faq).map(l => { const [q = '', a = ''] = l.split('|').map(x => x.trim()); return { q, a }; });
+    return g;
+  };
+  const pv = h('div', { class: 'ee-pv-in' });
+  const draw = () => { const y = pv.parentElement ? pv.parentElement.scrollTop : 0; try { pv.replaceChildren(renderGuide(JSON.parse(JSON.stringify(collect())))); } catch (e) { pv.replaceChildren(h('div', { class: 'warnbox' }, '미리보기를 그리지 못했어요: ' + e.message)); } if (pv.parentElement) pv.parentElement.scrollTop = y; };
+  const redraw = debounce(draw, 150);
+  [head.title, head.summary, notes, sched, faq].forEach(el => el.addEventListener('input', redraw));
+  drawItems();
+  const form = h('div', { class: 'stack ee-form' }, L('제목', head.title), L('한 줄 요약', head.summary), itemBox,
+    h('button', { class: 'btn', onclick: () => { collect(); g.items.push({ name: '새 평가', ratio: '', criteria: [], tips: [] }); drawItems(); redraw(); } }, '+ 평가 더하기'),
+    L('🗓 일정', sched), L('⚠️ 꼭 알아 두세요', notes), L('🙋 자주 묻는 질문', faq));
+  const side = h('div', { class: 'ee-pv' }, h('div', { class: 'ee-pv-head' }, '👀 학생 화면 미리보기', h('small', { class: 'muted' }, ' — 고치는 대로 바로 바뀌어요')), pv);
+  const m = modal({ title: '✏️ 수행평가 안내 고치기', wide: true, body: h('div', { class: 'ee-split' }, form, side),
+    actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { const ng = collect(); ng.auto = false; Store.set('evalguide:' + tab, ng); renderEval(); } }] });
+  m.el.parentElement.classList.add('xwide');
+  draw();
+}
 function editExam(g) {
   const ex = (g.exams ||= [{}])[0] || (g.exams[0] = {});
   const inp = (v, ph, cls = 'full') => { const i = h('input', { class: cls, placeholder: ph }); i.value = v || ''; return i; };

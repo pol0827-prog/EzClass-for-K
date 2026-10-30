@@ -332,18 +332,19 @@ function addMemoQuick(num, name, text = '') {
     actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { if (!t.value.trim()) return false; const ms = memos(cls.id); ms.unshift({ id: uid(), num: String(num), date: todayStr(), tags: [...tags], text: t.value.trim(), ts: Date.now() }); Store.set('memos:' + cls.id, ms); toast('메모를 저장했습니다'); } }] });
 }
 function memoTabs(cur) {
-  return h('div', { class: 'tabs memo-tabs' }, [['memo', '📝 관찰 메모'], ['stamp', '🌟 칭찬 도장']].map(([k, l]) => h('button', { class: 'tab' + (cur === k ? ' on' : ''), onclick: () => { MemoState.view = k; renderMemo(); } }, l)));
+  return h('div', { class: 'tabs memo-tabs' }, [['memo', '📝 관찰 메모'], ['role', '🧹 1인 1역'], ['stamp', '🌟 칭찬 도장']].map(([k, l]) => h('button', { class: 'tab' + (cur === k ? ' on' : ''), onclick: () => { MemoState.view = k; renderMemo(); } }, l)));
 }
 function renderMemo() {
   const root = $('#view'); root.replaceChildren();
   const cls = S.cls(); if (!cls) { root.append(h('div', { class: 'empty' }, '설정에서 학급을 먼저 만드세요.')); return; }
   if (MemoState.view === 'stamp') { root.append(memoTabs('stamp')); return renderStamps(root, cls); }
+  if (MemoState.view === 'role') { root.append(memoTabs('role')); return renderRoles(root, cls); }
   root.append(memoTabs('memo'));
   const studs = S.students(cls, true);
   const all = memos(cls.id);
   const cnt = n => all.filter(m => m.num === String(n)).length;
   const left = h('div', { class: 'memo-side' }, h('button', { class: 'stu-row' + (!MemoState.num ? ' on' : ''), onclick: () => { MemoState.num = null; renderMemo(); } }, '전체 보기', h('span', { class: 'cnt' }, all.length)),
-    studs.map(s => h('button', { class: 'stu-row' + (MemoState.num === String(s.num) ? ' on' : '') + (s.status && s.status !== '재적' ? ' out' : ''), title: s.note ? '비고: ' + s.note : '', onclick: () => { MemoState.num = String(s.num); renderMemo(); } }, `${s.num} ${s.name}`, s.note ? h('span', { class: 'stu-note' }, s.note) : null, s.status && s.status !== '재적' ? h('small', null, ' ' + s.status) : null, h('span', { class: 'cnt' }, cnt(s.num) || ''))));
+    studs.map(s => h('button', { class: 'stu-row' + (MemoState.num === String(s.num) ? ' on' : '') + (s.status && s.status !== '재적' ? ' out' : ''), title: s.note ? '비고: ' + s.note : '', onclick: () => { MemoState.num = String(s.num); renderMemo(); } }, `${s.num} ${s.name}`, stuRole(cls, s.num) ? h('span', { class: 'stu-role' }, '🧹 ' + stuRole(cls, s.num)) : null, s.note ? h('span', { class: 'stu-note' }, s.note) : null, s.status && s.status !== '재적' ? h('small', null, ' ' + s.status) : null, h('span', { class: 'cnt' }, cnt(s.num) || ''))));
   const sel = studs.find(s => String(s.num) === MemoState.num);
   const tags = new Set();
   const txt = h('textarea', { class: 'full', rows: 3, placeholder: '관찰 내용 — 구체적인 장면·행동·발언 중심으로' });
@@ -356,7 +357,7 @@ function renderMemo() {
     const ms = memos(cls.id).filter(m => (!MemoState.num || m.num === MemoState.num) && (!MemoState.q || (m.text + m.tags.join()).includes(MemoState.q)));
     list.replaceChildren(...(ms.length ? ms.map(m => { const s = studs.find(x => String(x.num) === m.num); return h('div', { class: 'memo-item' + (m.merged ? ' merged' : '') + (MemoState.pick.has(m.id) ? ' picked' : '') },
       h('div', { class: 'row gap' }, h('input', { type: 'checkbox', class: 'memo-pick', title: '합치기에 고르기', checked: MemoState.pick.has(m.id), onchange: e => { e.target.checked ? MemoState.pick.add(m.id) : MemoState.pick.delete(m.id); e.target.closest('.memo-item').classList.toggle('picked', e.target.checked); updPick(); } }),
-        m.merged ? h('span', { class: 'tag merged' }, '🧩 합친 메모') : null, h('b', null, `${m.num} ${s?.name || ''}`), s?.note ? h('span', { class: 'stu-note' }, s.note) : null, h('small', { class: 'muted' }, m.date), m.tags.map(t => h('span', { class: 'tag' }, t)), h('span', { class: 'grow' }),
+        m.merged ? h('span', { class: 'tag merged' }, '🧩 합친 메모') : null, h('b', null, `${m.num} ${s?.name || ''}`), m.role ? h('span', { class: 'stu-role' }, '🧹 ' + m.role) : null, s?.note ? h('span', { class: 'stu-note' }, s.note) : null, h('small', { class: 'muted' }, m.date), m.tags.map(t => h('span', { class: 'tag' }, t)), h('span', { class: 'grow' }),
         h('button', { class: 'x', onclick: async () => { const t = await promptBox('메모 수정', m.text, true); if (t != null) { const arr = memos(cls.id); arr.find(x => x.id === m.id).text = t; Store.set('memos:' + cls.id, arr); drawList(); } } }, '✎'),
         h('button', { class: 'x', onclick: async () => { if (await confirmBox('메모를 삭제할까요?', '삭제', true)) { Store.set('memos:' + cls.id, memos(cls.id).filter(x => x.id !== m.id)); drawList(); } } }, '✕')),
       h('div', { class: 'memo-text' }, m.text)); }) : [h('p', { class: 'muted' }, '메모가 없습니다.')]));
@@ -367,13 +368,72 @@ function renderMemo() {
   const dlBtn = h('button', { class: 'btn', onclick: () => downloadMemos(cls, studs) }, '⬇️ 파일로 받기');
   const draftBtn = sel ? h('button', { class: 'btn', onclick: () => withBusy(draftBtn, '초안 작성 중…', () => sekteukDraft(cls, sel)) }, '✨ 세특 문장 초안') : null;
   root.append(h('div', { class: 'memo-layout' }, left, h('div', { class: 'memo-main' },
-    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📝 학생 관찰 메모', sel ? ` — ${sel.num} ${sel.name}` : '', sel?.note ? h('span', { class: 'stu-note big' }, '📌 ' + sel.note) : null), search, mergeBtn, dlBtn, draftBtn),
+    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📝 학생 관찰 메모', sel ? ` — ${sel.num} ${sel.name}` : '', sel && stuRole(cls, sel.num) ? h('span', { class: 'stu-role big' }, '🧹 ' + stuRole(cls, sel.num)) : null, sel?.note ? h('span', { class: 'stu-note big' }, '📌 ' + sel.note) : null), search, mergeBtn, dlBtn, draftBtn),
     h('div', { class: 'card soft stack' }, h('div', { class: 'row gap wrap' }, who, whoNote, date, h('div', { class: 'chips' }, MEMO_TAGS.map(tg => h('button', { class: 'chip', onclick: e => { tags.has(tg) ? tags.delete(tg) : tags.add(tg); e.currentTarget.classList.toggle('on'); } }, tg)))), txt,
       h('div', { class: 'row' }, h('span', { class: 'grow small muted' }, '배움마무리 응답 옆의 📝 버튼으로도 메모를 옮길 수 있습니다.'), h('button', { class: 'btn primary', onclick: () => {
         if (!txt.value.trim()) return toast('내용을 입력하세요', 'warn');
-        const ms = memos(cls.id); ms.unshift({ id: uid(), num: String(who.value), date: date.value, tags: [...tags], text: txt.value.trim(), ts: Date.now() }); Store.set('memos:' + cls.id, ms); renderMemo();
+        const ms = memos(cls.id), rl = tags.has('1인 1역') ? stuRole(cls, who.value) : ''; ms.unshift({ id: uid(), num: String(who.value), date: date.value, tags: [...tags], text: txt.value.trim(), ts: Date.now(), ...(rl ? { role: rl } : {}) }); Store.set('memos:' + cls.id, ms); renderMemo();
       } }, '메모 추가'))), list)));
   drawList();
+}
+/* =========================================================
+   🧹 1인 1역 — 학생마다 맡은 역할과 수행 관찰 기록
+   roles:{학급id} = { 번호: { role, since, history:[{ role, since, until }] } }
+   기록은 관찰 메모(태그 '1인 1역', role 포함)로 쌓여 학생부 엑셀·세특 초안에 들어감
+   ========================================================= */
+const ROLE_PRESETS = ['칠판 정리', '출결 도우미', '학습지 배부', '과제 확인', '모둠 리더', '발표 진행', '수업 준비물 관리', '디지털 기기 관리', '교실 환경 정리', '분리수거', '질문 모음', '학습 도우미', '기록·서기', '시간 관리', '전달·연락'];
+const ROLE_QUICK = ['맡은 일을 성실하게 수행함', '스스로 찾아서 도움', '친구들을 배려하며 수행함', '꾸준히 빠짐없이 수행함', '개선 방법을 제안함', '수행이 미흡해 지도함'];
+function roles(cid) { return Store.get('roles:' + cid, {}); }
+function stuRole(cls, num) { return (roles(cls?.id)[String(num)]?.role || '').trim(); }
+function setRole(cls, num, role) {
+  const all = roles(cls.id), k = String(num), cur = all[k] || { role: '', since: '', history: [] }, today = todayStr();
+  role = (role || '').trim(); if (cur.role === role) return;
+  if (cur.role) (cur.history ||= []).push({ role: cur.role, since: cur.since || '', until: today });
+  cur.role = role; cur.since = role ? today : '';
+  all[k] = cur; Store.set('roles:' + cls.id, all);
+}
+function roleMemo(cls, st) {
+  const role = stuRole(cls, st.num);
+  if (!role) return toast('먼저 역할을 정해 주세요', 'warn');
+  const t = h('textarea', { class: 'full', rows: 3, placeholder: '예: 쉬는 시간마다 칠판을 깨끗이 정리하고 다음 수업 준비를 도움' });
+  const d = h('input', { type: 'date', value: todayStr() });
+  const chips = h('div', { class: 'chips' }, ROLE_QUICK.map(q => h('button', { class: 'chip', onclick: () => { t.value = (t.value.trim() ? t.value.trim() + ' ' : '') + q + '.'; t.focus(); } }, q)));
+  modal({ title: `🧹 ${st.num} ${st.name} — ${role}`, body: h('div', { class: 'stack' }, h('p', { class: 'small muted' }, '누르면 문장이 들어가요. 구체적인 장면을 덧붙이면 학생부 기록에 더 좋아요.'), chips, t, h('div', { class: 'row gap' }, h('b', null, '날짜'), d)),
+    actions: [{ label: '취소' }, { label: '기록', primary: true, onClick: () => {
+      if (!t.value.trim()) { toast('내용을 입력하세요', 'warn'); return false; }
+      const ms = memos(cls.id); ms.unshift({ id: uid(), num: String(st.num), date: d.value, tags: ['1인 1역'], role, text: `[1인 1역: ${role}] ${t.value.trim()}`, ts: Date.now() }); Store.set('memos:' + cls.id, ms);
+      toast('1인 1역 관찰을 기록했어요', 'ok'); renderMemo(); } }] });
+}
+function renderRoles(root, cls) {
+  const studs = S.students(cls), all = roles(cls.id), ms = memos(cls.id);
+  const dl = h('datalist', { id: 'role-list' }, [...new Set([...ROLE_PRESETS, ...Object.values(all).map(r => r.role).filter(Boolean)])].map(r => h('option', { value: r })));
+  const recs = n => ms.filter(m => m.num === String(n) && m.tags.includes('1인 1역'));
+  const filled = studs.filter(st => stuRole(cls, st.num)).length;
+  const rows = studs.map(st => {
+    const r = all[String(st.num)] || {}, n = recs(st.num).length;
+    const inp = h('input', { class: 'role-in', list: 'role-list', value: r.role || '', placeholder: '역할 쓰기 또는 고르기', onchange: e => { setRole(cls, st.num, e.target.value); toast(e.target.value.trim() ? `${st.num}번 ${st.name}: ${e.target.value.trim()}` : '역할을 비웠어요'); renderMemo(); } });
+    return h('tr', null, h('td', null, h('b', null, st.num)), h('td', null, st.name, st.note ? h('span', { class: 'stu-note' }, st.note) : null),
+      h('td', null, inp, (r.history || []).length ? h('div', { class: 'small muted' }, '이전: ' + r.history.map(x => x.role).join(' → ')) : null),
+      h('td', { class: 'small muted' }, r.since || ''),
+      h('td', null, n ? h('button', { class: 'btn sm ghost', title: '기록 보기', onclick: () => { MemoState.view = 'memo'; MemoState.num = String(st.num); MemoState.q = '1인 1역'; renderMemo(); } }, `📋 ${n}`) : h('span', { class: 'muted small' }, '—')),
+      h('td', null, h('button', { class: 'btn sm' + (r.role ? ' primary' : ''), disabled: !r.role, onclick: () => roleMemo(cls, st) }, '📝 수행 기록')));
+  });
+  const paste = h('textarea', { class: 'full', rows: 4, placeholder: '한꺼번에 넣기 — 한 줄에 "번호 역할"\n1 칠판 정리\n2 출결 도우미' });
+  root.append(dl, h('div', { class: 'stack role-page' },
+    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '🧹 1인 1역', h('small', { class: 'muted' }, `  ${cls.name} · 역할 정한 학생 ${filled}/${studs.length}명`)),
+      h('button', { class: 'btn', onclick: () => downloadRoles(cls) }, '⬇️ 엑셀로 받기')),
+    h('div', { class: 'small muted' }, '역할 칸에 쓰거나 목록에서 고르면 바로 저장돼요. 역할을 바꾸면 이전 역할도 기록으로 남아요. [📝 수행 기록]은 관찰 메모(1인 1역)로 쌓여 학생부 엑셀과 ✨ 세특 초안에 들어가요.'),
+    h('div', { class: 'table-wrap' }, h('table', { class: 'grid-tbl role-tbl' }, h('thead', null, h('tr', null, h('th', null, '번호'), h('th', null, '이름'), h('th', null, '맡은 역할'), h('th', null, '시작일'), h('th', null, '기록'), h('th', null, ''))), h('tbody', null, rows))),
+    h('details', { class: 'card soft' }, h('summary', null, '📋 한꺼번에 넣기'), h('div', { class: 'stack' }, paste,
+      h('button', { class: 'btn primary', onclick: () => { let n = 0; paste.value.split('\n').forEach(l => { const m = l.trim().match(/^(\d+)\s*[.,:\t ]\s*(.+)$/); if (m && studs.some(s => String(s.num) === String(+m[1]))) { setRole(cls, +m[1], m[2]); n++; } }); toast(n ? `${n}명의 역할을 넣었어요` : '넣을 줄이 없어요 (예: 1 칠판 정리)', n ? 'ok' : 'warn'); renderMemo(); } }, '넣기')))));
+}
+function downloadRoles(cls) {
+  if (!window.XLSX) return toast('엑셀 도구를 불러오지 못했어요', 'err');
+  const studs = S.students(cls, true), all = roles(cls.id), ms = memos(cls.id);
+  const rows = studs.map(st => { const r = all[String(st.num)] || {}; const rec = ms.filter(m => m.num === String(st.num) && m.tags.includes('1인 1역')).slice().reverse();
+    return { 번호: +st.num || st.num, 이름: st.name, '맡은 역할': r.role || '', 시작일: r.since || '', '이전 역할': (r.history || []).map(x => `${x.role}(${x.since}~${x.until})`).join(', '), '수행 기록 수': rec.length || '', '수행 기록(날짜순)': rec.map(m => `[${m.date}] ${m.text}`).join('\n') }; });
+  const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 16 }, { wch: 11 }, { wch: 30 }, { wch: 8 }, { wch: 80 }];
+  XLSX.utils.book_append_sheet(wb, ws, '1인 1역'); XLSX.writeFile(wb, `${cls.name}_1인1역_${todayStr()}.xlsx`);
 }
 /* =========================================================
    🌟 칭찬 도장 — 교사가 학생에게 주는 도장 (학생부 기록 참고용)
@@ -536,6 +596,7 @@ async function sekteukDraft(cls, s) {
 - 자료에 없는 사실을 만들지 말 것.
 [교사 관찰 메모]
 ${ms.map(m => `- ${m.date} [${m.tags.join(',')}] ${m.text}`).join('\n') || '(없음)'}
+[1인 1역] ${[stuRole(cls, s.num), ...((roles(cls.id)[String(s.num)]?.history || []).map(x => x.role))].filter(Boolean).join(', ') || '(없음)'}
 [교사가 준 칭찬 도장]
 ${stamps(cls.id).filter(x => x.num === String(s.num)).map(x => `- ${x.date} [${x.type}] ${x.reason || ''}`).join('\n') || '(없음)'}
 [학생 제출]
@@ -786,6 +847,24 @@ function setPromise(body) {
     h('div', { class: 'row gap wrap' }, h('button', { class: 'btn', onclick: () => Intro.play({ force: true }) }, '▶ 시작 영상 보기'), h('button', { class: 'btn primary', onclick: e => withBusy(e.currentTarget, '녹화 중…', () => Intro.record()) }, '⬇️ 영상 파일로 저장 (1080p)'))));
   setTimeout(loop, 50);
 }
+/* 📎 성취수준·교육과정 문서(HWP·HWPX·PDF)에서 과목별 성취기준만 뽑아 저장 */
+async function importStdDoc() {
+  const f = await pickFile('.hwp,.hwpx,.pdf,.txt'); if (!f) return;
+  const box = modal({ title: '📎 성취기준 뽑는 중', body: h('div', { class: 'stack' }, h('div', { class: 'eg-loading' }, h('span', { class: 'spin' })), h('p', { class: 'muted' }, '문서를 읽고 있어요… (큰 파일은 조금 걸려요)')), actions: [] });
+  let found;
+  try { const r = await DocText.read(f, t => { const p = $('p', box.el); if (p) p.textContent = t; }); found = Standards.extract(r.text || ''); }
+  catch (e) { box.close(); return toast('문서를 읽지 못했어요: ' + (e.message || e), 'err', 6000); }
+  box.close();
+  const subs = Object.keys(found);
+  if (!subs.length) return toast('문서에서 [12문학01-01] 같은 성취기준을 찾지 못했어요', 'warn', 6000);
+  const pick = new Set(subs);
+  const list = h('div', { class: 'stack' }, subs.map(sj => h('label', { class: 'std-imp' }, h('input', { type: 'checkbox', checked: true, onchange: e => e.target.checked ? pick.add(sj) : pick.delete(sj) }),
+    h('b', null, sj), h('span', { class: 'tag' }, `${found[sj].length}개`), Standards.isSaved(sj) ? h('small', { class: 'muted' }, ' · 저장해 둔 것을 바꿔요') : null,
+    h('details', null, h('summary', { class: 'small' }, '미리 보기'), h('div', { class: 'small' }, found[sj].map(x => h('div', null, h('b', null, x.code), ' ', x.text)))))));
+  modal({ title: `📎 ${f.name}`, wide: true, body: h('div', { class: 'stack' }, h('p', { class: 'small muted' }, '과목마다 성취기준 문장만 골라냈어요. 저장할 과목을 고르세요. 저장하면 칠판의 📚 성취기준 칸에서 과목별로 불러올 수 있어요.'), list),
+    actions: [{ label: '취소' }, { label: '고른 과목 저장', primary: true, onClick: () => { if (!pick.size) { toast('저장할 과목을 고르세요', 'warn'); return false; }
+      pick.forEach(sj => Standards.set(sj, found[sj])); Store.set('local:stdSubj', [...pick][0]); toast(`${pick.size}개 과목의 성취기준을 저장했어요`, 'ok'); renderSettings(); } }] });
+}
 function setStandards(body) {
   let subj = Store.get('local:stdSubj', Brand.get().subject);
   const list = Standards.get(subj).map(x => ({ ...x }));
@@ -800,6 +879,11 @@ function setStandards(body) {
     tipI('과목마다 성취기준을 넣어 두면 칠판의 성취기준 칸에서 📚 를 눌러 골라 넣을 수 있어요.'),
     h('div', { class: 'row gap wrap' }, h('b', null, '과목'), h('div', { class: 'chips' }, Standards.subjects().map(s => h('button', { class: 'chip' + (s === subj ? ' on' : ''), onclick: () => { Store.set('local:stdSubj', s); renderSettings(); } }, s, Standards.get(s).length ? h('small', null, ` ${Standards.get(s).length}`) : null))),
       h('button', { class: 'btn sm', onclick: async () => { const n = await promptBox('과목 이름', ''); if (n?.trim()) { Standards.set(n.trim(), Standards.get(n.trim())); Store.set('local:stdSubj', n.trim()); renderSettings(); } } }, '+ 다른 과목')),
+    h('div', { class: 'card soft row gap wrap std-src' },
+      Standards.isSaved(subj) ? h('span', null, '💾 내가 저장한 성취기준을 쓰고 있어요') : Standards.builtin(subj).length ? h('span', null, '📘 2022 개정 기본 성취기준을 쓰고 있어요 (고치면 내 것으로 저장돼요)') : h('span', { class: 'muted' }, '이 과목은 기본 성취기준이 없어요. 문서에서 뽑거나 붙여 넣으세요.'),
+      h('span', { class: 'grow' }),
+      Standards.isSaved(subj) && Standards.builtin(subj).length ? h('button', { class: 'btn sm', onclick: async () => { if (await confirmBox(`${subj}을(를) 2022 개정 기본 성취기준(${Standards.builtin(subj).length}개)으로 되돌릴까요? 내가 고친 내용은 사라져요.`, '되돌리기', true)) { Standards.reset(subj); renderSettings(); } } }, '📘 기본 성취기준으로 되돌리기') : null,
+      h('button', { class: 'btn sm primary', onclick: () => importStdDoc() }, '📎 성취수준 문서에서 뽑기 (HWP·HWPX·PDF)')),
     h('h3', null, `📚 ${subj} 성취기준 (${list.length})`), rows,
     h('div', { class: 'card soft stack' }, h('b', null, '📋 한꺼번에 붙여 넣기'), paste,
       h('div', { class: 'row gap wrap' }, h('button', { class: 'btn primary', onclick: () => { const add = Standards.parse(paste.value); if (!add.length) return toast('붙여 넣은 내용이 없습니다', 'warn'); const have = new Set(list.map(x => x.code + x.text)); add.forEach(x => { if (!have.has(x.code + x.text)) list.push(x); }); save(); toast(`${add.length}개를 넣었습니다`, 'ok'); renderSettings(); } }, '추가하기'),
@@ -1118,6 +1202,7 @@ function setGuide(body) {
       item('📝', '관찰 메모 🔒', '학생별 관찰 기록을 분류(1인 1역·수업 태도·발표·탐구력·성장 등)와 함께 남깁니다.',
         h('ul', null, h('li', null, '설정 → 명렬표의 ', h('b', null, '비고'), '가 학생 이름 옆에 주황색으로 떠요(예: 앞자리 배려).'),
           h('li', null, '🧩 학생별로 합치기, ⬇️ 엑셀·텍스트로 받기, ✨ AI 세특 문장 초안.'),
+          h('li', null, h('b', null, '🧹 1인 1역'), ' 탭 — 학생마다 맡은 역할을 쓰거나 골라 저장하고(바꾸면 이전 역할도 남아요), [📝 수행 기록]으로 수행 모습을 남겨요. 역할이 관찰 메모의 이름 옆에 보이고, 학생부 엑셀·세특 초안에 들어가요.'),
           h('li', null, h('b', null, '🌟 칭찬 도장'), ' 탭 — 도장 종류(발표·질문·협력·탐구 등)를 고르고 학생을 누르면 날짜·칭찬 내용과 함께 찍혀요. 학생별 개수, 종류별 통계, 엑셀 받기가 되고 세특 초안·학생부 엑셀에도 들어가요.'))),
       item('📊', '성적 🔒', 'NEIS 일람표(학기말 성적·정기시험·수행평가)를 올리면 이름·학번은 버리고 반/번호와 점수만 저장합니다.',
         h('ul', null, h('li', null, '🚨 미이수 예측 — 40점 미만 학생을 알려 줘요.'), h('li', null, '📐 분할점수로 A~E 성취도를 계산해요.'))),
@@ -1135,7 +1220,7 @@ function setGuide(body) {
 
     sec('top', '⏱', '위쪽 도구 막대',
       h('div', { class: 'ug-grid3' },
-        [['⏱', '타이머', '활동 시간을 크게 띄워요'], ['🎲', '뽑기', '발표자를 무작위로 뽑아요'], ['👥', '모둠', '모둠을 짜고 보여 줘요'], ['📱', 'QR', '지금 보고 있는 활동의 QR을 크게'], ['🎬', '영상', '유튜브 등 영상 링크를 띄워요'], ['⛶', '전체', '전체 화면으로 수업해요']]
+        [['⏱', '타이머', '활동 시간을 크게 띄워요'], ['🎲', '뽑기', '발표자 한 명 뽑기 · 📋 재적생 전체 발표 순서 뽑기(5·4·3·2·1 짠!)'], ['👥', '모둠', '모둠을 짜고 보여 줘요'], ['📱', 'QR', '지금 보고 있는 활동의 QR을 크게'], ['🎬', '영상', '유튜브 등 영상 링크를 띄워요'], ['⛶', '전체', '전체 화면으로 수업해요']]
           .map(([i, t, d]) => h('div', { class: 'ug-mini' }, h('span', null, i), h('b', null, t), h('small', null, d)))),
       h('p', { class: 'small muted' }, '가운데 시계는 설정 → ⏰ 시정표를 넣으면 "3교시 · 12분 남음"처럼 남은 시간을 보여 주고, 끝나기 5분 전에 빨갛게 바뀌어요.')),
 
@@ -1176,6 +1261,7 @@ async function exportExcelNow() {
     return { 번호: +n || n, 이름: s.name, 학적: s.status || '재적', 배움열기응답수: open.filter(x => String(x.num) === n).length, 배움마무리응답수: cl.length, '🏆 그랑프리': [...open, ...cl, ...share].filter(x => String(x.num) === n && x.gp).length || '', '👍 교사 추천': [...open, ...cl].filter(x => String(x.num) === n && x.star).length || '', '✨ AI 추천 이유': [...open, ...cl].filter(x => String(x.num) === n && x.ai).map(x => `[${x.date}] ${x.aiWhy || ''}`).join('\n'),
       '배움일기(날짜순)': cl.map(x => `[${x.date}] ${x.summary}`).join('\n'), '역량 어필(날짜순)': cl.map(x => `[${x.date}] ${x.appeal}`).join('\n'),
       '선택 역량(횟수)': Object.entries(comps).sort((a, b) => b[1] - a[1]).map(([c, k]) => `${c}(${k})`).join(', '),
+      '🧹 1인 1역': [roles(cls.id)[n]?.role, ...((roles(cls.id)[n]?.history || []).map(x => `(이전) ${x.role}`))].filter(Boolean).join(', '),
       '🌟 칭찬 도장': stamps(cls.id).filter(x => x.num === n).length || '', '칭찬 도장 내용': stamps(cls.id).filter(x => x.num === n).slice().reverse().map(x => `[${x.date} ${x.type}] ${x.reason || ''}`.trim()).join('\n'),
       '관찰 메모': ms.filter(m => m.num === n).map(m => `[${m.date}${m.tags.length ? ' ' + m.tags.join('/') : ''}] ${m.text}`).join('\n'),
       결석: a.absent, 결과: a.part, '지각·조퇴': a.late, 출석률: a.rate != null ? Math.round(a.rate) + '%' : '', 현재성취율: r.c.rate != null ? r.c.rate.toFixed(1) + '%' : '', 미이수예측: r.level ? '미이수 우려 (' + r.reasons.join(', ') + ')' : '' };

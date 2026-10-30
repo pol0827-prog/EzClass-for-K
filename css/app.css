@@ -1454,3 +1454,36 @@ body.student #clock{display:none}
 .sr-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px dashed var(--line);font-size:.92rem}
 .sr-ic{font-size:1.15rem}
 .sr-r{color:#4b5563;overflow:hidden;text-overflow:ellipsis}
+.std-src{align-items:center}
+.std-imp{display:grid;grid-template-columns:auto auto auto 1fr;gap:4px 8px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--line)}
+.std-imp details{grid-column:1/-1}
+
+/* 🧹 1인 1역 */
+.stu-role{display:inline-block;margin-left:6px;padding:1px 8px;border-radius:99px;background:#e8f4ee;color:#1d6b4f;font-size:.78rem;font-weight:700;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;vertical-align:middle}
+.stu-row .stu-role{max-width:100px;font-size:.72rem}
+.stu-role.big{font-size:.9rem;max-width:300px}
+.role-page h2 small{font-size:.9rem;font-weight:500}
+.role-tbl .role-in{width:100%;min-width:180px}
+.role-tbl td{vertical-align:middle}
+
+/* 📋 전체 발표 순서 */
+.order-present{display:flex;flex-direction:column;gap:14px;padding:18px 22px;overflow:auto;background:var(--bg,#fffdf8)}
+.order-now{display:flex;align-items:center;gap:18px;flex-wrap:wrap;background:linear-gradient(135deg,#fdeef3,#eef6f1);border-radius:18px;padding:14px 20px}
+.order-now small{color:var(--muted);font-weight:700}
+.order-now .on-name{font-size:clamp(1.8rem,4vw,3rem);font-weight:900;flex:1;min-width:240px}
+.order-now .on-name b{display:inline-flex;align-items:center;justify-content:center;min-width:1.6em;height:1.6em;border-radius:50%;background:var(--acc,#cf6287);color:#fff;font-size:.7em;margin-right:6px;vertical-align:middle}
+.order-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px}
+.order-grid.many{grid-template-columns:repeat(auto-fill,minmax(128px,1fr))}
+.order-card{position:relative;display:flex;flex-direction:column;align-items:center;gap:2px;padding:12px 8px 10px;border-radius:14px;border:2px solid var(--line);background:#fff;cursor:pointer;font-family:inherit;transition:transform .15s,box-shadow .15s}
+.order-card:hover{transform:translateY(-2px);box-shadow:0 6px 16px rgba(0,0,0,.08)}
+.order-card .oc-no{position:absolute;top:6px;left:8px;font-weight:900;color:var(--acc,#cf6287);font-size:1.05rem}
+.order-card .oc-name{font-size:1.35rem;font-weight:900;margin-top:10px}
+.order-card small{color:var(--muted)}
+.order-card.cur{border-color:var(--acc,#cf6287);background:#fdeef3;box-shadow:0 0 0 5px rgba(207,98,135,.2);transform:scale(1.04)}
+.order-card.done{opacity:.45}
+.order-card.done::after{content:'✔';position:absolute;top:4px;right:8px;color:#16a34a;font-weight:900}
+.order-grid.reveal .order-card{animation:ocIn .45s cubic-bezier(.2,1.4,.4,1) both}
+@keyframes ocIn{from{opacity:0;transform:translateY(18px) scale(.6) rotate(-6deg)}to{opacity:1;transform:none}}
+.order-present,.order-present .pres-top{color:#2b2420}
+.order-card,.order-card .oc-name{color:#2b2420}
+.order-now .on-name{color:#2b2420}
