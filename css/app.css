@@ -1321,3 +1321,5 @@ body.student #clock{display:none}
 .ha-item{display:flex;align-items:center;gap:8px;background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px 20px;text-decoration:none;color:var(--ink);font-family:'Gowun Batang',serif;font-weight:700;font-size:1.05rem;box-shadow:var(--sh);transition:.15s;position:relative}
 .ha-item:hover{transform:translateY(-3px);border-color:#f2bfd0}
 .ha-ic{font-size:1.4rem}.ha-lock{font-size:.7rem;opacity:.6}
+#clockSlot{margin-right:4px}
+#clockSlot #clock{padding:4px 14px}

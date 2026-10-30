@@ -57,9 +57,9 @@ function refreshTop() {
   const les = h('select', { title: '수업 자료', onchange: e => { if (e.target.value === '+') return openPdfImport(); const L = S.lesson(e.target.value); S.setUI({ lessonId: e.target.value, chapterId: L?.chapters[0]?.id || '' }); route(); } },
     h('option', { value: '' }, '수업 자료 선택'), S.lessons().map(l => h('option', { value: l.id }, l.title)), h('option', { value: '+' }, '+ PDF 가져오기…'));
   les.value = ui.lessonId || '';
-  top.replaceChildren(
+  top.replaceChildren(h('span', { id: 'clockSlot' }),
     h('button', { class: 'ib', title: '메뉴 접기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, '☰'),
-    cls, les, h('span', { class: 'grow' }), h('span', { id: 'clockSlot' }), h('span', { class: 'grow' }),
+    cls, les, h('span', { class: 'grow' }),
     h('div', { class: 'tools' }, [['⏱', '타이머', () => Timer.open()], ['🎲', '뽑기', () => Picker.open()], ['👥', '모둠', () => Groups.open()], ['📱', 'QR', () => showQRBig()], ['🎬', '영상', () => Video.manager('global', '공통')], ['⛶', '전체', () => toggleFull()]]
       .map(([i, l, f]) => h('button', { class: 'tool', title: l, onclick: f }, h('span', null, i), h('small', null, l)))));
 }
