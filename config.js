@@ -13,3 +13,12 @@ window.FIREBASE_CONFIG = {
   messagingSenderId: "690514124592",
   appId: "1:690514124592:web:a946f8d1d9bc7b3d68b2f5"
 };
+
+/* 보안 규칙(firestore.rules)에 넣은 선생님 이메일 — 앱의 [보안 규칙 복사]에도 이 목록이 들어갑니다 */
+window.TEACHER_EMAILS = [
+  'pol082753@gmail.com',
+  'pol0827@goedu.kr'
+];
+
+/* 교사 로그인 때 먼저 골라 줄 계정 (로그인 창에 이 계정이 바로 뜹니다) */
+window.LOGIN_EMAIL = 'pol0827@goedu.kr';
