@@ -84,7 +84,7 @@ const Intro = {
   },
   opts() {
     const s = Store.get('intro', {});
-    return { ...Brand.get(), on: s.on !== false, tagline: s.tagline ?? '읽는 길이 보이면, 답이 보인다', theme: this.THEMES[s.theme] ? s.theme : 'blossom', every: s.every || 'load' };
+    return { ...Brand.get(), on: s.on !== false, tagline: (s.tagline == null || ['읽는 길이 보이면, 답이 보인다', '함께 자라는 국어 교실'].includes(s.tagline)) ? '함께 배우고 서로가 같이 성장하는 즐거운 국어수업' : s.tagline, theme: this.THEMES[s.theme] ? s.theme : 'blossom', every: s.every || 'load' };
   },
   async fonts() {
     try { await Promise.race([Promise.all(['900 96px "Noto Sans KR"', '500 40px "Noto Sans KR"', '700 40px "Noto Sans KR"', '700 96px "Gowun Batang"'].map(f => document.fonts.load(f, '가나다'))), new Promise(r => setTimeout(r, 1200))]); } catch { }
@@ -255,7 +255,7 @@ const Intro = {
     ctx.restore();
   },
   /* 앱 시작 영상: 직접 넣은 영상 → 기본 영상(assets/intro.mp4) → 실시간 그리기 순 */
-  videoSrc() { return Store.get('local:introVideo') || window.INTRO_VIDEO_SRC || 'assets/intro.mp4'; },
+  videoSrc() { return Store.get('local:introVideo') || window.INTRO_VIDEO_SRC || 'assets/intro.mp4?v=20261031'; },
   async play({ force = false } = {}) {
     const o = this.opts();
     if (!force) {
@@ -337,7 +337,7 @@ const Intro = {
     const ext = type.includes('mp4') ? 'mp4' : 'webm';
     const url = URL.createObjectURL(blob);
     status.replaceChildren(`완성! (${ext.toUpperCase()}, ${(blob.size / 1e6).toFixed(1)}MB, 1920×1080) `,
-      h('a', { class: 'btn primary', href: url, download: `${o.title}_인트로.${ext}` }, '⬇️ 영상 저장'), ' ',
+      h('a', { class: 'btn primary', href: url, download: `${o.title}_인트로.${ext}` }, '⬇ 영상 저장'), ' ',
       h('button', { class: 'btn', onclick: async () => { Store.set('local:introVideo', await readFileAs(blob)); Store.set('local:introHasPromises', this.total() > this.DUR); toast('앱 시작 영상으로 정했습니다'); } }, '▶ 앱 시작 영상으로 쓰기'),
       ext === 'webm' ? h('span', { class: 'small' }, ' · WebM은 유튜브·대부분의 편집기(캡컷, 프리미어 등)에서 바로 열립니다.') : null);
     const a = h('a', { href: url, download: `${o.title}_인트로.${ext}` }); document.body.append(a); a.click(); a.remove();

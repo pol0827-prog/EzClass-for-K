@@ -2,7 +2,7 @@
 /* =========================================================
    앱 뼈대 · 라우터 · 시작
    ========================================================= */
-const APP_VER = '2026.10.31-m2';
+const APP_VER = '2026.10.31-p8';
 const View = { cleanup: [] };
 const ROUTES = {
   home: [renderHome, '🏠', '홈'],
@@ -16,16 +16,17 @@ const ROUTES = {
   attend: [renderAttend, '🪑', '출결·자리'],
   memo: [renderMemo, '📝', '관찰 메모'],
   grades: [renderGrades, '📊', '성적'],
+  submit: [renderSubmit, '📥', '제출 관리'],
   eval: [renderEval, '📋', '평가 안내'],
-  settings: [renderSettings, '⚙️', '설정']
+  settings: [renderSettings, '⚙', '설정']
 };
-const LOCKED = ['memo', 'grades'];
-const HOME_ADMIN = ['attend', 'memo', 'grades', 'eval', 'settings'];
+const LOCKED = ['memo', 'grades', 'submit'];
+const HOME_ADMIN = ['attend', 'memo', 'grades', 'submit', 'eval', 'settings'];
 let _lastView = '';
 async function route() {
   const want = ROUTES[location.hash.slice(1)] ? location.hash.slice(1) : 'home';
   if (LOCKED.includes(want) && !(Lock.open && LOCKED.includes(_lastView))) {
-    if (!(await Lock.ask(want === 'memo' ? '🔒 관찰 메모 — 비밀번호' : '🔒 성적 — 비밀번호'))) { location.hash = '#' + (_lastView && !LOCKED.includes(_lastView) ? _lastView : 'home'); return; }
+    if (!(await Lock.ask(want === 'memo' ? '🔒 관찰 메모 — 비밀번호' : want === 'submit' ? '🔒 과제 제출 관리 — 비밀번호' : '🔒 성적 — 비밀번호'))) { location.hash = '#' + (_lastView && !LOCKED.includes(_lastView) ? _lastView : 'home'); return; }
     Lock.open = true;
   }
   if (!LOCKED.includes(want)) Lock.open = false;
@@ -41,20 +42,30 @@ async function route() {
   try { ROUTES[k][0](); } catch (e) { console.error(e); $('#view').replaceChildren(h('div', { class: 'empty' }, '화면을 그리는 중 오류가 났습니다: ' + e.message)); }
 }
 /* 홈이 아닌 화면: 관리 메뉴를 오른쪽에 세로로 작게 */
+function sideToggle() {
+  if (document.getElementById('sideTog')) return;
+  const b = h('button', { id: 'sideTog', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); upd(); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } });
+  const upd = () => { const c = document.body.classList.contains('collapsed'); b.textContent = c ? '▶ 펴기' : '◀ 접기'; b.title = c ? '왼쪽 메뉴 펴기' : '왼쪽 메뉴 접기'; };
+  upd(); document.body.append(b);
+}
 function adminRail(k) {
   let r = document.getElementById('adminRail');
-  if (!r) { r = h('nav', { id: 'adminRail' }, HOME_ADMIN.map(x => { const [, i, l] = ROUTES[x]; return h('a', { href: '#' + x, title: l, 'data-k': x }, h('span', { class: 'ar-i' }, i), h('span', { class: 'ar-t' }, l)); })); document.body.append(r); }
+  if (!r) {
+    const fold = h('button', { class: 'ar-fold', onclick: () => { const v = !r.classList.contains('folded'); r.classList.toggle('folded', v); Store.set('local:railFold', v); fold.textContent = v ? '◀' : '▶'; fold.title = v ? '관리 메뉴 펴기' : '관리 메뉴 접기'; } });
+    r = h('nav', { id: 'adminRail' }, fold, h('div', { class: 'ar-title' }, '수업 관리'), h('div', { class: 'ar-list' }, HOME_ADMIN.map(x => { const [, i, l] = ROUTES[x]; return h('a', { href: '#' + x, title: l, 'data-k': x }, h('span', { class: 'ar-i' }, i), h('span', { class: 'ar-t' }, l)); })));
+    const v = !!Store.get('local:railFold', false); r.classList.toggle('folded', v); fold.textContent = v ? '◀' : '▶'; fold.title = v ? '관리 메뉴 펴기' : '관리 메뉴 접기';
+    document.body.append(r);
+  }
   r.style.display = k === 'home' ? 'none' : '';
   $$('a', r).forEach(a => a.classList.toggle('on', a.dataset.k === k));
 }
 function buildShell() {
   // 관리(출결·메모·성적·평가 안내·설정)는 홈 화면 꽃 아래 한 줄로
-  const nav = h('nav', { id: 'nav' }, Object.entries(ROUTES).filter(([k]) => !HOME_ADMIN.includes(k)).map(([k, [, i, l]], idx) => [
-    idx === 1 ? h('div', { class: 'nav-sec' }, '수업') : null, idx === 5 ? h('div', { class: 'nav-sec' }, '수업 도구') : null,
+  const nav = h('nav', { id: 'nav' }, Object.entries(ROUTES).filter(([k]) => k !== 'home' && !HOME_ADMIN.includes(k)).map(([k, [, i, l]], idx) => [
+    idx === 0 ? h('div', { class: 'nav-sec' }, '수업') : null, idx === 4 ? h('div', { class: 'nav-sec' }, '수업 도구') : null,
     h('a', { href: '#' + k, title: l }, h('span', { class: 'ni' }, i), h('span', { class: 'nl' }, l))]));
   const foot = h('div', { id: 'side-foot' });
-  const side = h('aside', { id: 'side' }, h('div', { class: 'brand' }, h('span', { class: 'logo seal len' + Math.min(Brand.get().logo.length, 4) + (Brand.get().teacher ? ' name' : '') }, Brand.get().logo), h('span', { class: 'nl' }, h('b', null, Brand.get().title), h('small', null, Brand.get().subject))), nav, foot,
-    h('button', { class: 'side-fold', title: '메뉴 접기/펴기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, h('span', { class: 'sf-c' }, '◀ 메뉴 접기'), h('span', { class: 'sf-o' }, '▶')));
+  const side = h('aside', { id: 'side' }, h('div', { class: 'brand' }, h('span', { class: 'logo seal len' + Math.min(Brand.get().logo.length, 4) + (Brand.get().teacher ? ' name' : '') }, Brand.get().logo), h('span', { class: 'nl' }, h('b', { class: 'brand-t' }, bi('leaf', 15), Brand.get().title), h('small', null, Brand.get().subject))), nav, foot);
   const top = h('header', { id: 'top' });
   const app = $('#app');
   app.replaceChildren(side, h('div', { id: 'main' }, top, h('section', { id: 'view' })));
@@ -70,20 +81,15 @@ function refreshTop() {
     h('option', { value: '' }, '수업 자료 선택'), S.lessons().map(l => h('option', { value: l.id }, l.title)), h('option', { value: '+' }, '+ PDF 가져오기…'));
   les.value = ui.lessonId || '';
   top.replaceChildren(h('span', { id: 'clockSlot' }),
-    h('button', { class: 'ib', title: '메뉴 접기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, '☰'),
     cls, les, h('span', { class: 'grow' }),
-    h('button', { class: 'ib top-mini', title: '수업 화면: 선생님 도구를 숨기고 내용만 (Esc 두 번으로 끄기)', onclick: () => Stage.toggle() }, '🎬'),
-    h('button', { class: 'ib top-mini', title: '글씨 크기·진한 색', onclick: e => View2.menu(e.currentTarget) }, '가'),
-    h('a', { class: 'ib top-mini', title: '사용 안내', href: '#settings', onclick: () => Store.set('local:setTab', 'guide') }, '❓'),
-    h('div', { class: 'tools' }, [['⏱', '타이머', () => Timer.open()], ['🎲', '발표뽑기', () => Picker.open()], ['👥', '모둠뽑기', () => Groups.open()], ['🎬', '영상', () => Video.manager('global', '공통')], ['🖼', '이미지', () => Pics.open()], ['⛶', '전체', () => toggleFull()]]
+    h('div', { class: 'tools' }, [['🏠', '홈', () => { location.hash = '#home'; }], ['⏱', '타이머', () => Timer.open()], ['🎲', '발표뽑기', () => Picker.open()], ['👥', '모둠뽑기', () => Groups.open()], ['🎬', '영상', () => Video.manager('global', '공통')], ['🖼', '이미지', () => Pics.open()], ['📺', '수업화면', () => Stage.toggle()], ['⛶', '전체', () => toggleFull()]]
       .map(([i, l, f]) => h('button', { class: 'tool', title: l, onclick: f }, h('span', null, i), h('small', null, l)))));
 }
 function refreshFoot() {
   const f = $('#side-foot'); if (!f) return;
   f.replaceChildren(
-    h('div', { class: 'mode ' + (FB.ready ? 'cloud' : 'local') }, FB.ready ? (FB.user ? '☁️ 동기화 중' : '☁️ 서버 연결됨') : '💻 로컬 모드'),
+    h('div', { class: 'mode ' + (FB.ready ? 'cloud' : 'local') }, FB.ready ? (FB.user ? '☁ 동기화 중' : '☁ 서버 연결됨') : '💻 로컬 모드'),
     FB.ready ? (FB.user ? h('button', { class: 'btn sm ghost', title: FB.user.email, onclick: () => FB.signOut() }, h('span', { class: 'nl' }, FB.user.email.split('@')[0] + ' · 로그아웃')) : h('button', { class: 'btn sm primary', onclick: () => FB.signIn() }, h('span', { class: 'nl' }, '교사 로그인'))) : FB.fileConfig() ? null : h('a', { class: 'btn sm ghost', href: '#settings', onclick: () => Store.set('local:setTab', 'server') }, h('span', { class: 'nl' }, '서버 연결하기')),
-    h('button', { class: 'btn sm ghost', onclick: exportExcel }, h('span', { class: 'nl' }, '⬇️ 학생부 엑셀')),
     h('small', { class: 'nl muted app-ver' }, '버전 ' + APP_VER));
 }
 
@@ -133,11 +139,12 @@ const Gate = {
   if (room) { startStudent(room); return; }
   await Gate.wait();          // 🔒 등록된 교사만 통과
   if (Store.get('local:collapsed')) document.body.classList.add('collapsed');
+  sideToggle();
   buildShell();
   const ui = S.ui();
   if ((!ui.classId || !S.cls()) && S.classes()[0]) S.setUI({ classId: S.classes()[0].id });
   if (ui.lessonId && !S.lesson()) S.setUI({ lessonId: '', chapterId: '' });
-  View2.apply(); Net.mount(); if (Store.get('local:stage')) Stage.set(true);
+  Net.mount(); NameMask.mount(); if (Store.get('local:stage')) Stage.set(true);
   route();
   Bell.mount();
   Intro.play();

@@ -152,7 +152,7 @@ function startStudent(room, pv = null) {
   };
   const done = (msg) => h('div', { class: 'stu-done' }, h('div', { class: 'big' }, '✅'), h('h2', null, msg || '제출 완료!'), h('p', { class: 'muted' }, actId ? '다시 제출하면 최신 응답으로 바뀝니다. 다른 활동은 선생님이 보여 주는 그 활동의 QR로 들어오세요.' : '다시 제출하면 최신 응답으로 바뀝니다. 선생님이 다음 활동을 열면 화면이 자동으로 바뀌어요.'),
     h('button', { class: 'btn', onclick: () => { sentFor[room$.act.id] = false; render(); } }, '다시 제출하기'));
-  /* ✍️ 쓰던 글 자동 임시 저장 (와이파이가 끊겨도 안 날아가게) */
+  /* ✍ 쓰던 글 자동 임시 저장 (와이파이가 끊겨도 안 날아가게) */
   const dkey = (id, i) => `stu:draft:${room}:${id}:${me.num}:${i}`;
   function draftify(root, id) {
     if (pv) return;
@@ -273,7 +273,7 @@ function startStudent(room, pv = null) {
       h('p', { class: 'small' }, '선생님이 내 응답을 오늘의 그랑프리로 뽑았어요 ✨'),
       h('button', { class: 'btn lg full', onclick: async e => { const b = e.currentTarget; b.disabled = true; b.textContent = '만드는 중…';
         const cv = await GP.drawPlaque({ cls: g.classLabel || me.cls || '', who: `${me.num}번 ${me.name}`, sub: '', q: g.q || '', text: '', subject: g.subject || room$.subject || '', teacher: g.teacher || '', date: todayStr() });
-        cv.toBlob(bl => { const a = h('a', { href: URL.createObjectURL(bl), download: `그랑프리_${me.name}_${todayStr()}.png` }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); b.disabled = false; b.textContent = '⬇️ 상패 다시 저장'; }); } }, '⬇️ 내 상패 저장'),
+        cv.toBlob(bl => { const a = h('a', { href: URL.createObjectURL(bl), download: `그랑프리_${me.name}_${todayStr()}.png` }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); b.disabled = false; b.textContent = '⬇ 상패 다시 저장'; }); } }, '⬇ 내 상패 저장'),
       h('button', { class: 'btn primary lg full', onclick: close }, '확인')));
     document.body.append(ov); GP.confetti(ov, 70); try { Sfx.fanfare(); } catch { }
   };

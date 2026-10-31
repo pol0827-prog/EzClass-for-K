@@ -10,6 +10,14 @@ const BM_MOTTO = '함께 배우고 서로가 같이 성장하는 즐거운 국�
 const BM_FINAL = '정리한 내용은 학생부 과목 세특 기록에 참고 자료로 활용됩니다.\n성실하게 구체적으로 성의를 다해 쓰면 본인에게 득이 됩니다.';
 const BM_FOOTER = '재이미나는 국어교실';
 const BM_STEP = 24;
+const BM_SKINS = [
+  ['basic', '기본', '칠판 머리 · 색 단계'],
+  ['mono', '모노 미니멀', '흑백 · 여백 · 굵은 숫자'],
+  ['navy', '남색 매거진', '남색 띠 머리 · 큰 번호'],
+  ['note', '줄 공책', '줄무늬 종이 · 마스킹테이프'],
+  ['exam', '정갈한 시험지', '명조 · 겹줄 테두리'],
+  ['round', '말랑 활동지', '둥근 곡선 · 물결 · 말풍선']
+];
 const bmHeightFromLines = n => Math.min(580, Math.max(40, 24 + BM_STEP * Math.round(n)));
 const bmLinesFromHeight = hgt => Math.max(1, Math.round((hgt - 24) / BM_STEP));
 const bmClampW = w => Math.min(100, Math.max(20, Math.round(w)));
@@ -84,7 +92,7 @@ function bmInitial() {
       { content: '모둠에서 나눈 생각 중 가장 인상 깊었던 해석을 발표해 봅시다. 다른 모둠의 이야기를 듣고 새롭게 알게 된 점을 적어 봅시다.', answer: true, height: 72, lines: 2 },
       { content: '오늘 배운 내용을 한 문장으로 정리하고, 시 속 화자에게 건네고 싶은 말을 적어 봅시다.', answer: true, height: 72, lines: 2 }
     ].map(s => ({ media: '', link: '', linkTitle: '', width: 100, offset: 0, gap: 0, key: '', ...s })),
-    images: [], answers: [], layout: {}, titles: [...BM_STAGES], motto: BM_MOTTO, footer: BM_FOOTER, finalNote: BM_FINAL, fontBody: 'Noto Sans KR', fontTitle: 'Noto Sans KR', fontScale: 100, titleScale: 100
+    images: [], answers: [], layout: {}, titles: [...BM_STAGES], motto: BM_MOTTO, footer: BM_FOOTER, finalNote: BM_FINAL, fontBody: 'Noto Sans KR', fontTitle: 'Noto Sans KR', fontScale: 100, titleScale: 100, skin: 'basic'
   };
 }
 function bmNormalize(w) {
@@ -273,7 +281,7 @@ function bmFloat(kind, item, page) {
 function bmMeasure() {
   const w = BM.w;
   let mp = $('#bm-measure'); if (mp) mp.remove();
-  mp = h('div', { id: 'bm-measure', class: 'bm bm-paper bm-measure', 'aria-hidden': 'true' });
+  mp = h('div', { id: 'bm-measure', class: 'bm bm-paper bm-measure sk-' + (w.skin || 'basic'), 'aria-hidden': 'true' });
   document.body.append(mp);
   const run = () => {
     bmPaperVars(mp);
@@ -297,13 +305,14 @@ function bmMeasure() {
 }
 function bmPreviewNow() {
   const stack = $('.bm-stack'); if (!stack || !BM.w) return;
+  if (BM.w.skin === 'round' && !_bmFontLoaded.has('Jua')) { bmLoadFont('Jua').then(() => bmPreview()); }
   const w = BM.w, { heights, headerH } = bmMeasure();
   const pages = bmPack(heights.map(x => x || 170), BM_CAP - headerH, w.columns);
   const y = stack.parentElement.scrollTop;
   bmPaperVars(stack);
   stack.classList.toggle('bm-keymode', BM.keyMode);
   stack.replaceChildren(...pages.map((page, p) => {
-    const art = h('article', { class: 'bm-paper', 'aria-label': `학습지 ${p + 1}페이지` },
+    const art = h('article', { class: 'bm-paper sk-' + (w.skin || 'basic'), 'aria-label': `학습지 ${p + 1}페이지` },
       h('label', { class: 'bm-page-img bm-noprint' }, bi('img', 14), '이 쪽에 이미지 넣기', h('input', { type: 'file', accept: 'image/png,image/jpeg', class: 'hidden', onchange: async e => {
         const f = e.target.files[0]; e.target.value = ''; if (!f) return;
         if (!['image/png', 'image/jpeg'].includes(f.type)) return bmStatus('JPG 또는 PNG 파일만 넣을 수 있어요.', true);
@@ -381,6 +390,10 @@ function bmEditor() {
         } })),
         src ? h('button', { type: 'button', class: 'bm-icon-btn', onclick: () => { if (type === 'teacher') { BM.teacherImage = ''; Store.set('bm:teacherImg', ''); } else { BM.stampImage = ''; Store.set('bm:stampImg', ''); } bmSave(); bmPreview(); bmEditor(); } }, bi('x', 14)) : null);
     };
+    kids.push(h('div', { class: 'bm-sh' }, bi('panel', 15), '디자인'),
+      h('div', { class: 'bm-skins' }, BM_SKINS.map(([k, n, d]) => h('button', { type: 'button', class: 'bm-skin' + ((w.skin || 'basic') === k ? ' on' : ''), onclick: () => { w.skin = k; bmSave(); bmPreview(); bmEditor(); } },
+        h('div', { class: 'bm-skin-pv sk-' + k }, h('i', { class: 'a' }), h('i', { class: 'b' }), h('i', { class: 'c' }), h('i', { class: 'c' })), h('b', null, n), h('small', null, d)))),
+      h('div', { class: 'bm-div' }));
     kids.push(h('div', { class: 'bm-sh' }, bi('sliders', 15), '편집 설정'),
       h('label', { class: 'bm-field' }, h('span', { class: 'bm-flabel' }, '단 편집'), bmSeg([[1, [bi('panel', 14), '1단']], [2, [bi('cols', 14), '2단']]], w.columns, v => { w.columns = v; bmSave(); bmPreview(); bmEditor(); bmToolbar(); })),
       h('label', { class: 'bm-field' }, h('span', { class: 'bm-flabel' }, '마스터 편집', h('small', null, '모든 내용을 지정한 쪽수에 맞춰 배치')), bmSeg([[0, '자동'], [1, '1쪽'], [2, '2쪽'], [3, '3쪽']], w.masterPages, v => { w.masterPages = v; bmSave(); bmPreview(); bmEditor(); }),

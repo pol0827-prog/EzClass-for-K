@@ -91,7 +91,7 @@ function renderLearn() {
   LearnState.pv && LearnState.pv.destroy();
   const lesson = S.lesson();
   if (!lesson) {
-    root.append(emptyPic('📄', 'PDF를 넣으면 지문별로 나뉩니다', h('button', { class: 'btn primary xl', onclick: openPdfImport }, '📥 PDF 넣기'), h('button', { class: 'btn lg', onclick: () => openChapterPaste() }, '✍️ 직접 입력')));
+    root.append(emptyPic('📄', 'PDF를 넣으면 지문별로 나뉩니다', h('button', { class: 'btn primary xl', onclick: openPdfImport }, '📥 PDF 넣기'), h('button', { class: 'btn lg', onclick: () => openChapterPaste() }, '✍ 직접 입력')));
     return;
   }
   const ch = S.chapter();
@@ -101,7 +101,7 @@ function renderLearn() {
 
   const chips = h('div', { class: 'chap-chips' }, lesson.chapters.map((c, i) => h('button', { class: 'chip' + (c.id === ch.id ? ' on' : ''), onclick: () => { S.setUI({ chapterId: c.id }); LearnState.sel = null; renderLearn(); } }, h('small', null, `챕터 ${i + 1}`), ' ', c.title)),
     h('button', { class: 'chip add', title: '지문 추가', onclick: () => openChapterPaste(lesson) }, '+'));
-  const TABS = [['paper', '📄', '지문'], ['edit', '✏️', '지문 편집'], ['ox', '⚡', '킬러 OX'], ['struct', '🗺', '구조도']];
+  const TABS = [['paper', '📄', '지문'], ['edit', '✏', '지문 편집'], ['ox', '⚡', '킬러 OX'], ['struct', '🗺', '구조도']];
   if (!TABS.some(t => t[0] === LearnState.tab)) LearnState.tab = 'paper';
   const tabs = h('div', { class: 'tabs icon-tabs' }, TABS.map(([k, i, l]) => h('button', { class: 'tab' + (LearnState.tab === k ? ' on' : '') + (k === 'edit' ? ' minor' : ''), title: l, onclick: () => { LearnState.tab = k; renderLearn(); } }, h('span', { class: 'ti' }, i), h('span', { class: 'tl' }, l))));
   root.append(h('div', { class: 'learn-head' }, chips, tabs));
@@ -323,7 +323,7 @@ function sendOXToOpen(ch) {
 }
 
 /* ---------- 👀 선배의 시선 ---------- */
-const GZ_MODES = { scan: ['발문 훑기', '#2563eb'], focus: ['정독', '#f59e0b'], skim: ['빠르게 읽기', '#64748b'], jump: ['근거로 점프', '#8b5cf6'], check: ['대조·판정', '#16a34a'], skip: ['건너뛰기', '#94a3b8'] };
+const GZ_MODES = { scan: ['발문 훑기', '#2563eb'], focus: ['정독', '#f59e0b'], skim: ['빠르게 읽기', '#64748b'], jump: ['근거로 점프', '#8b5cf6'], check: ['대조·판정', '#1f6b3d'], skip: ['건너뛰기', '#94a3b8'] };
 class GazePlayer {
   constructor(pv, steps, ui) {
     this.pv = pv; this.steps = steps; this.ui = ui; this.i = -1; this.playing = false; this.speed = Store.get('local:gzSpeed', 3);
@@ -473,7 +473,7 @@ JSON만:
   return wrap;
 }
 
-/* ---------- ✏️ 편집 ---------- */
+/* ---------- ✏ 편집 ---------- */
 function renderEdit(lesson, ch) {
   const wrap = h('div', { class: 'full-panel edit' });
   const ttl = h('input', { class: 'full', value: ch.title }), intro = h('input', { class: 'full', value: ch.intro || '' });
@@ -486,7 +486,7 @@ function renderEdit(lesson, ch) {
     h('button', { class: 'btn', onclick: async () => { const fs = await pickFile('image/*', true); for (const f of fs || []) { const d = await shrinkImage(f, 2000, 800000); Store.set(`page:${ch.id}:${ch.pageCount || 0}`, d); ch.pageCount = (ch.pageCount || 0) + 1; } S.saveChapter(ch); drawPages(); } }, '+ 원본 이미지 추가'));
   drawPages();
   const idx = lesson.chapters.indexOf(ch);
-  wrap.append(h('h2', null, '✏️ 지문 편집'),
+  wrap.append(h('h2', null, '✏ 지문 편집'),
     h('div', { class: 'grid2' },
       h('div', { class: 'stack' }, h('label', null, '수업(단원) 이름'), ltitle, h('label', null, '지문 제목'), ttl, h('label', null, '지시문'), intro, h('label', null, '지문 본문 — 문단(발화) 사이는 빈 줄. "학생 1: …"처럼 쓰면 발화자가 굵게 표시됩니다.'), pass),
       h('div', { class: 'stack' }, h('label', null, '문항 — "1. 발문" 다음 줄에 ①~⑤ 선지, 〈보기〉는 발문 아래 줄에, "정답: 3"'), qs,

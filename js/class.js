@@ -48,7 +48,7 @@ function liveStatus(want = PageAct) {
 // 왼쪽 칸 전체 접기 (배움열기·배움공유·배움마무리 공통, 기억함)
 function sideFold(layout) {
   const side = layout.querySelector('.open-side'); if (!side) return layout;
-  const set = v => { layout.classList.toggle('folded', v); Store.set('local:sideFold', v); btn.textContent = v ? '▶ 펴기' : '◀ 접기'; btn.title = v ? '왼쪽 칸 펴기' : '왼쪽 칸 접기'; setTimeout(() => window.dispatchEvent(new Event('resize')), 50); };
+  const set = v => { layout.classList.toggle('folded', v); Store.set('local:sideFold', v); btn.textContent = v ? '▶' : '◀'; btn.title = v ? '왼쪽 칸 펴기' : '왼쪽 칸 접기'; setTimeout(() => window.dispatchEvent(new Event('resize')), 50); };
   const btn = h('button', { class: 'fold-btn', onclick: () => set(!layout.classList.contains('folded')) });
   side.prepend(btn); set(!!Store.get('local:sideFold', false));
   return layout;
@@ -112,7 +112,7 @@ function qrPanel(big = false, want = null) {
   if (want && want.act) Pub.publish(want.kind, want.act);
   const q = h('div', { class: 'qr' });
   const box = h('div', { class: 'qr-panel' + (big ? ' big' : '') }, q,
-    h('div', { class: 'qr-info' }, h('b', null, S.cls()?.name || ''), want && want.act ? h('div', { class: 'small qr-for' }, `${KIND_LABEL[want.kind] || ''} · ${want.act.q || want.act.title || ''} 전용`) : h('div', { class: 'small muted' }, '학급 공용 QR (지금 열린 활동이 나와요)'), h('div', { class: 'small muted break' }, url),
+    h('div', { class: 'qr-info' }, h('b', null, S.cls()?.name || ''), want && want.act ? h('div', { class: 'small qr-for' }, `${KIND_LABEL[want.kind] || ''} · ${want.act.q || want.act.title || ''} 전용`) : h('div', { class: 'small muted' }, '학급 공용 QR (지금 열린 활동이 나와요)'),
       !Live.cloud() ? h('a', { class: 'warnbox small', href: '#settings', onclick: () => Store.set('local:setTab', 'server') }, '⚠ 서버 연결 전 — 학생 폰 응답 불가 ', tipI('지금은 이 컴퓨터에서만 동작합니다. 같은 브라우저의 새 탭에서 학생 화면을 시험할 수 있습니다. 설정 → 학생 응답 서버를 연결하면 학생 휴대폰으로 응답을 받습니다.')) : null,
       h('div', { class: 'row gap' }, h('button', { class: 'btn sm', onclick: () => navigator.clipboard?.writeText(url).then(() => toast('주소를 복사했습니다'), () => toast('복사가 막혀 있습니다', 'warn')) }, '주소 복사'),
         h('a', { class: 'btn sm', href: url, target: '_blank', rel: 'noopener' }, '학생 화면 미리보기'))));
@@ -148,8 +148,7 @@ function renderHome() {
   root.replaceChildren(h('div', { class: 'home' },
     h('div', { class: 'home-head' },
       h('div', null, h('h1', null, B.title)),
-      h('div', { class: 'row gap' }, h('button', { class: 'btn ghost2', title: '인트로', onclick: () => Intro.play({ force: true }) }, '▶'),
-        c ? h('button', { class: 'btn primary lg', onclick: () => showQRBig(null) }, '📱 학급 공용 QR') : h('button', { class: 'btn primary lg', onclick: () => { Store.set('local:setTab', 'class'); location.hash = '#settings'; } }, '🪑 학급 만들기'))),
+      c ? null : h('button', { class: 'btn primary lg', onclick: () => { Store.set('local:setTab', 'class'); location.hash = '#settings'; } }, '🪑 학급 만들기')),
     h('div', { class: 'modes' },
       mode('m-lec', '講', '강의', () => location.hash = '#learn', [chip('📖', '지문', () => location.hash = '#learn'), chip('🖍', '칠판', () => location.hash = '#board'), chip('📄', '학습지', () => location.hash = '#sheet'), chip('🎬', '영상', () => Video.manager('global'))]),
       mode('m-grp', '共', '모둠', () => location.hash = '#share', [chip('👥', '모둠 짜기', () => Groups.open()), chip('⏱', '타이머', () => Timer.open()), chip('🤝', '활동', () => location.hash = '#share')]),
@@ -177,7 +176,7 @@ function renderOpen() {
     h('div', { class: 'clamp2' }, a.q))));
   const side = h('div', { class: 'open-side' },
     h('div', { class: 'row' }, h('h3', { class: 'grow' }, '💡 배움열기 질문'), h('button', { class: 'btn sm primary', onclick: () => editAct(key) }, '+ 질문')),
-    acts.length ? foldBox('openlist', `📋 질문 목록 (${acts.length})`, listEl) : emptyPic('💡', '첫 질문 만들기', h('button', { class: 'btn primary lg', onclick: () => editAct(key) }, '+ 질문')),
+    acts.length ? foldBox('openlist', `📋 질문 목록 (${acts.length})`, listEl) : emptyPic('💡', '위 [+ 질문]으로 첫 질문을 만들어요'),
     h('div', { class: 'card soft small' }, qrPanel(false, PageAct)));
   const main = h('div', { class: 'open-main' });
   root.append(sideFold(h('div', { class: 'open-layout' }, side, main)));
@@ -220,7 +219,7 @@ function statsView(act, list) {
     setTimeout(() => {
       if (!window.Chart) { cv.replaceWith(h('div', null, opts.map((o, i) => h('div', null, `${o}: ${counts[i]}`)))); return; }
       _chart && _chart.destroy();
-      _chart = new Chart(cv, { type: 'bar', data: { labels: opts.map(o => o.length > 28 ? o.slice(0, 28) + '…' : o), datasets: [{ data: counts, backgroundColor: opts.map((o, i) => act.answer && String(act.answer) === o ? '#16a34a' : ['#2f5d62', '#c8803a', '#b8432f', '#5b7a3a', '#6b5b8a', '#3d7ea6', '#8a6d3b', '#7a7266'][i % 8]), borderRadius: 8 }] },
+      _chart = new Chart(cv, { type: 'bar', data: { labels: opts.map(o => o.length > 28 ? o.slice(0, 28) + '…' : o), datasets: [{ data: counts, backgroundColor: opts.map((o, i) => act.answer && String(act.answer) === o ? '#1f6b3d' : ['#2f5d62', '#c8803a', '#b8432f', '#5b7a3a', '#6b5b8a', '#3d7ea6', '#8a6d3b', '#7a7266'][i % 8]), borderRadius: 8 }] },
         options: { indexAxis: opts.length > 5 || opts.some(o => o.length > 8) ? 'y' : 'x', responsive: true, maintainAspectRatio: false, animation: { duration: 400 }, plugins: { legend: { display: false }, tooltip: { enabled: true } }, scales: { x: { ticks: { font: { size: 16 }, precision: 0 } }, y: { ticks: { font: { size: 16 }, precision: 0 }, beginAtZero: true } } } });
     });
   } else {
@@ -257,7 +256,7 @@ function wallBox(list, room, q, redraw) {
   return h('div', { class: 'wall-wrap' },
     h('div', { class: 'wall-bar' }, f('all', `전체 ${list.length}`), f('gp', `🏆 그랑프리 ${nG}`), f('star', `👍 추천 ${nT}`), f('ai', `✨ AI ${nA}`), h('span', { class: 'grow' }),
       h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: WallState.hide, onchange: e => { WallState.hide = e.target.checked; Store.set('local:wallHide', WallState.hide); redraw(); } }), ' 이름 숨기기'),
-      h('button', { class: 'btn sm' + (WallState.pick ? ' on' : ''), title: '응답 두 개를 골라 이름 없이 나란히 보기', onclick: () => { WallState.pick = WallState.pick ? null : []; redraw(); if (WallState.pick) toast('비교할 응답 두 개를 눌러 주세요', 'ok'); } }, WallState.pick ? `⚖️ 고르는 중 ${WallState.pick.length}/2` : '⚖️ 두 응답 비교'), aiBtn),
+      h('button', { class: 'btn sm' + (WallState.pick ? ' on' : ''), title: '응답 두 개를 골라 이름 없이 나란히 보기', onclick: () => { WallState.pick = WallState.pick ? null : []; redraw(); if (WallState.pick) toast('비교할 응답 두 개를 눌러 주세요', 'ok'); } }, WallState.pick ? `⚖ 고르는 중 ${WallState.pick.length}/2` : '⚖ 두 응답 비교'), aiBtn),
     h('div', { class: 'wall' }, cards.length ? cards : emptyPic(WallState.filter === 'all' ? '📮' : WallState.filter === 'gp' ? '🏆' : '👍', WallState.filter === 'all' ? '응답을 기다리는 중…' : WallState.filter === 'gp' ? '그랑프리를 받은 응답이 아직 없어요' : '추천한 응답이 아직 없어요')));
 }
 /* 한 응답 크게 보기 (←/→ 넘기기) */
@@ -332,7 +331,7 @@ function renderShare() {
     h('div', { class: 'row' }, h('h3', { class: 'grow' }, '🤝 모둠 활동'), h('button', { class: 'btn sm primary', onclick: () => editShare(key) }, '+ 활동')),
     acts.length ? foldBox('sharelist', `📋 활동 목록 (${acts.length})`, h('div', { class: 'act-list' }, acts.map(a => h('div', { class: 'act-item' + (a.id === ShareState.actId ? ' on' : ''), onclick: () => { ShareState.actId = a.id; renderShare(); } },
       h('div', { class: 'row' }, h('small', { class: 'muted grow' }, a.date || ''), h('button', { class: 'x', onclick: e => { e.stopPropagation(); editShare(key, a); } }, '✎')), h('b', { class: 'clamp2' }, a.title))))) :
-      emptyPic('🤝', '모둠 활동 만들기', h('button', { class: 'btn primary lg', onclick: () => editShare(key) }, '+ 활동')),
+      emptyPic('🤝', '위 [+ 활동]으로 모둠 활동을 만들어요'),
     h('div', { class: 'card soft small' }, qrPanel(false, PageAct)));
   const main = h('div', { class: 'open-main' });
   root.append(sideFold(h('div', { class: 'open-layout' }, side, main)));
@@ -514,8 +513,7 @@ function renderClose() {
     h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📔 ', act.title),
       h('button', { class: 'btn', title: '학생 휴대폰에 보일 응답지를 미리 봅니다', onclick: () => studentPreview('close', act) }, '📱 응답지 미리보기'),
       h('button', { class: 'btn', onclick: e => toggleFull(e.currentTarget.closest('.open-stage')) }, '🖥 크게 공유'),
-      h('button', { class: 'btn', onclick: editCloseCfg }, '✎ 질문 수정'),
-      h('button', { class: 'btn', onclick: exportExcel }, '⬇️ 학생부용 엑셀')),
+      h('button', { class: 'btn', onclick: editCloseCfg }, '✎ 질문 수정')),
     h('details', { class: 'close-mini' },
       h('summary', null, h('span', { class: 'cm-chip' }, '① 배움일기 📢'), h('span', { class: 'cm-chip' }, '② 역량 어필 🔒'), h('span', { class: 'cm-chip pin', title: RECORD_NOTICE }, '📌 학생부 참고'), h('span', { class: 'cm-more' }, '질문 보기')),
       h('div', { class: 'cm-body' }, h('div', null, h('b', null, '① 배움일기 '), h('small', null, '(📢 함께 봐요) '), act.summary), h('div', null, h('b', null, '② 역량 어필 '), h('small', null, '(🔒 선생님만) '), act.appeal), h('div', { class: 'small muted' }, '📌 ', RECORD_NOTICE))),
@@ -680,7 +678,7 @@ const GP = {
     const key = e => { if (e.key === 'Escape') close(); };
     st.append(h('div', { class: 'gp-title' }, joint ? '🤝 공동 그랑프리!' : '🏆 오늘의 그랑프리!'), h('div', { class: 'gp-wrap' }, cv),
       h('div', { class: 'gp-bar' },
-        h('button', { class: 'btn', onclick: () => cv.toBlob(b => { const a = h('a', { href: URL.createObjectURL(b), download: `그랑프리_${info.cls}_${info.who}_${info.date}.png`.replace(/\s+/g, '') }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }) }, '⬇️ 상패 이미지 저장'),
+        h('button', { class: 'btn', onclick: () => cv.toBlob(b => { const a = h('a', { href: URL.createObjectURL(b), download: `그랑프리_${info.cls}_${info.who}_${info.date}.png`.replace(/\s+/g, '') }); document.body.append(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000); }) }, '⬇ 상패 이미지 저장'),
         r.kind !== 'share' && typeof addMemoQuick === 'function' ? h('button', { class: 'btn', onclick: () => addMemoQuick(r.num, r.name, `[그랑프리 ${info.date}] ${info.q ? '「' + info.q + '」 ' : ''}${info.text.slice(0, 200)}`) }, '📝 관찰 메모에 남기기') : null,
         h('button', { class: 'btn primary', onclick: close }, '닫기')));
     document.body.append(st); document.addEventListener('keydown', key);

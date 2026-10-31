@@ -199,7 +199,7 @@ ${(text || '(이미지로 첨부)').slice(0, 30000)}`, { images, maxTokens: 1000
 }
 
 /* ---------- 그림 안내 렌더 ---------- */
-const EG_COLORS = ['#d0628a', '#5aa4c8', '#93c062', '#c8803a', '#8b6bb3', '#3d9a8b', '#e48fac', '#7a4a32'];
+const EG_COLORS = ['#d0628a', '#5aa4c8', '#3d7a46', '#c8803a', '#8b6bb3', '#3d9a8b', '#e48fac', '#7a4a32'];
 function renderGuide(g, { big = false, tab = null, idx = null } = {}) {
   const items = g.items || [];
   const total = items.reduce((a, it) => a + (+it.ratio || 0), 0);
@@ -216,7 +216,7 @@ function renderGuide(g, { big = false, tab = null, idx = null } = {}) {
     it.scoring ? h('div', { class: 'eg-row' }, h('span', { class: 'eg-ic' }, '🧮'), h('div', null, h('small', null, '점수 계산'), it.scoring)) : null,
     (it.tips || []).length ? h('div', { class: 'eg-tips' }, it.tips.map(t => h('div', null, '⭐ ', t))) : null))));
   if ((g.schedule || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '🗓 일정'), h('div', { class: 'eg-timeline' }, g.schedule.map(s => h('div', { class: 'eg-ti' }, h('i'), h('b', null, s.when), h('span', null, s.what))))));
-  if ((g.notes || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '⚠️ 꼭 알아 두세요'), h('div', { class: 'eg-notes' }, g.notes.map(n => h('div', { class: 'eg-note' }, n)))));
+  if ((g.notes || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '⚠ 꼭 알아 두세요'), h('div', { class: 'eg-notes' }, g.notes.map(n => h('div', { class: 'eg-note' }, n)))));
   if ((g.faq || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '🙋 자주 묻는 질문'), h('div', { class: 'eg-faq' }, g.faq.map(f => h('details', null, h('summary', null, 'Q. ', f.q), h('p', null, 'A. ', f.a))))));
   return wrap;
 }
@@ -285,18 +285,18 @@ async function uploadEvalDocRun(tab, f) {
         toast('학생용 안내를 만들었습니다', 'ok');
       } catch (e) {
         console.error(e);
-        if (tab === 'written') { Store.set('evalguide:written', ruleExamNotice(src.text)); Store.set('local:evalView:written', 'guide'); toast('AI 정리에 실패해 글에서 자동으로 골라냈어요. 확인 후 ✏️ 고쳐 주세요 (' + (e.message || '') + ')', 'warn', 8000); box.close(); renderEval(); return; }
+        if (tab === 'written') { Store.set('evalguide:written', ruleExamNotice(src.text)); Store.set('local:evalView:written', 'guide'); toast('AI 정리에 실패해 글에서 자동으로 골라냈어요. 확인 후 ✏ 고쳐 주세요 (' + (e.message || '') + ')', 'warn', 8000); box.close(); renderEval(); return; }
         const rg = rulePerfGuide(src.text);
-        if (rg) { Store.set('evalguide:' + tab, rg); Store.set('local:evalView:' + tab, 'guide'); toast('AI 정리에 실패해 계획서의 표에서 골라 만들었어요. 확인 후 ✏️ 내용 고치기로 다듬어 주세요', 'warn', 8000); box.close(); renderEval(); return; }
+        if (rg) { Store.set('evalguide:' + tab, rg); Store.set('local:evalView:' + tab, 'guide'); toast('AI 정리에 실패해 계획서의 표에서 골라 만들었어요. 확인 후 ✏ 내용 고치기로 다듬어 주세요', 'warn', 8000); box.close(); renderEval(); return; }
         toDoc(); Store.set('local:evalView:' + tab, 'src');
         toast('글자는 읽었지만 AI 정리에 실패했어요 (' + (e.message || '') + '). [✨ 다시 만들기]를 눌러 주세요', 'err', 8000);
       }
     } else if (tab === 'written') {
       Store.set('evalguide:written', ruleExamNotice(src.text)); Store.set('local:evalView:written', 'guide');
-      toast('AI 없이 글에서 자동으로 골라냈어요. 확인 후 ✏️ 고쳐 주세요', 'warn', 6000);
+      toast('AI 없이 글에서 자동으로 골라냈어요. 확인 후 ✏ 고쳐 주세요', 'warn', 6000);
     } else {
       const rg = rulePerfGuide(src.text);
-      if (rg) { Store.set('evalguide:' + tab, rg); Store.set('local:evalView:' + tab, 'guide'); toast('계획서의 표에서 영역·반영 비율·채점 기준을 골라 학생용 안내를 만들었어요. ✏️ 내용 고치기로 다듬어 주세요', 'ok', 6000); }
+      if (rg) { Store.set('evalguide:' + tab, rg); Store.set('local:evalView:' + tab, 'guide'); toast('계획서의 표에서 영역·반영 비율·채점 기준을 골라 학생용 안내를 만들었어요. ✏ 내용 고치기로 다듬어 주세요', 'ok', 6000); }
       else { toDoc(); Store.set('local:evalView:' + tab, 'doc'); toast('표를 찾지 못해 글자만 옮겼어요. 안내문 편집에서 고쳐 주세요', 'warn', 6000); }
     }
   } catch (e) { console.error(e); box.close(); modal({ title: '😥 파일을 읽지 못했어요', body: h('div', { class: 'stack' }, h('p', null, e.message || String(e)), h('p', { class: 'muted small' }, `파일: ${f.name} (${(f.size / 1024).toFixed(0)}KB)`), tipI('가장 확실한 방법: 한글에서 [파일 → 다른 이름으로 저장 → PDF]로 저장해 올리기')) }); renderEval(); return; }
@@ -336,9 +336,9 @@ function evalGuideViewInner(tab, ed, saveDoc) {
   }) }, '✨ 다시 만들기');
   return h('div', { class: 'stack' },
     h('div', { class: 'row gap wrap' }, h('button', { class: 'btn primary', onclick: () => g.kind === 'exam' ? presentExam(g) : presentGuide(g, tab) }, '🖥 크게 보며 설명'),
-      regen, h('button', { class: 'btn', onclick: () => g.kind === 'exam' ? editExam(g) : editGuide(g, tab) }, '✏️ 내용 고치기'), h('button', { class: 'btn', onclick: () => { ed.innerHTML = g.kind === 'exam' ? examToHTML(g) : guideToHTML(g); saveDoc(); Store.set('local:evalView:' + tab, 'doc'); renderEval(); } }, '✏️ 글로 옮겨 고치기'),
+      regen, h('button', { class: 'btn', onclick: () => g.kind === 'exam' ? editExam(g) : editGuide(g, tab) }, '✏ 내용 고치기'), h('button', { class: 'btn', onclick: () => { ed.innerHTML = g.kind === 'exam' ? examToHTML(g) : guideToHTML(g); saveDoc(); Store.set('local:evalView:' + tab, 'doc'); renderEval(); } }, '✏ 글로 옮겨 고치기'),
       h('span', { class: 'grow' }), src ? h('small', { class: 'muted' }, '📎 ', src.name) : null, h('button', { class: 'btn sm', onclick: () => uploadEvalDoc(tab) }, '다른 파일')),
-    target, g.auto ? h('div', { class: 'eg-note' }, g.kind === 'exam' ? '🔎 AI 없이 글에서 자동으로 골라낸 결과예요. 날짜·범위가 맞는지 확인하고 [✏️ 내용 고치기]로 바로잡아 주세요.' : '🔎 AI 없이 계획서의 표에서 골라낸 결과예요. 학생에게 필요 없는 내용은 [✏️ 내용 고치기]에서 빼거나 쉬운 말로 다듬어 주세요.') : null,
+    target, g.auto ? h('div', { class: 'eg-note' }, g.kind === 'exam' ? '🔎 AI 없이 글에서 자동으로 골라낸 결과예요. 날짜·범위가 맞는지 확인하고 [✏ 내용 고치기]로 바로잡아 주세요.' : '🔎 AI 없이 계획서의 표에서 골라낸 결과예요. 학생에게 필요 없는 내용은 [✏ 내용 고치기]에서 빼거나 쉬운 말로 다듬어 주세요.') : null,
     g.kind === 'exam' ? renderExam(g) : renderGuide(g, { tab }));
 }
 
@@ -363,7 +363,7 @@ levels는 점수 높은 순, 계획서의 수준을 빠짐없이.
 [계획서]
 ${src.text.slice(0, 30000)}`, { maxTokens: 3000 });
       if (r.levels?.length) c.levels = r.levels; if (r.deduct) c.deduct = r.deduct; if (r.points && !c.points) c.points = r.points; if (r.scoring) it.scoring = r.scoring;
-      persist(); draw(); if (!r.levels?.length) toast('계획서에서 수준별 점수를 찾지 못했어요. ✏️ 직접 적어 주세요', 'warn', 5000);
+      persist(); draw(); if (!r.levels?.length) toast('계획서에서 수준별 점수를 찾지 못했어요. ✏ 직접 적어 주세요', 'warn', 5000);
     }) }, lv.length ? '✨ 계획서에서 다시 찾기' : '✨ 계획서에서 자세히 찾기') : null;
     const editBtn = h('button', { class: 'btn', onclick: async () => {
       const t = await promptBox('한 줄에 한 수준씩: 수준 | 점수 | 조건', (c.levels || []).map(l => `${l.label} | ${l.points} | ${l.desc}`).join('\n') || '상 | 10점 | \n중 | 8점 | \n하 | 6점 | ', true);
@@ -371,14 +371,14 @@ ${src.text.slice(0, 30000)}`, { maxTokens: 3000 });
       c.levels = t.split('\n').map(l => l.split('|').map(x => x.trim())).filter(a => a[0]).map(([label, points = '', desc = '']) => ({ label, points, desc }));
       const d = await promptBox('감점 규칙 (없으면 비우기)', c.deduct || ''); if (d != null) c.deduct = d.trim();
       persist(); draw();
-    } }, '✏️ 직접 고치기');
+    } }, '✏ 직접 고치기');
     box.replaceChildren(h('div', { class: 'eg-dcard' },
       h('div', { class: 'eg-dhead' }, h('div', { class: 'grow' }, h('small', null, `${it.name} · 채점 기준`), h('h2', null, c.name)), c.points ? h('span', { class: 'eg-dpts' }, c.points) : null, h('button', { class: 'btn', onclick: close }, '✕')),
       c.desc ? h('p', { class: 'eg-ddesc' }, '🎯 ', c.desc) : null,
       lv.length ? h('div', { class: 'eg-ladder' }, lv.map((l, k) => h('div', { class: 'eg-step', style: { '--w': ((num(l.points) ?? 0) / mx * 100) + '%', '--o': 1 - k * (0.6 / Math.max(lv.length - 1, 1)) } },
         h('div', { class: 'eg-step-l' }, h('b', null, l.label), l.points ? h('span', null, l.points) : null),
         h('div', { class: 'eg-step-r' }, h('div', { class: 'eg-step-bar' }, h('i')), h('div', null, l.desc || '')))))
-        : h('div', { class: 'eg-dempty' }, '수준별 점수가 아직 없어요.', h('br'), src?.text ? '✨ 버튼을 누르면 계획서에서 찾아 정리합니다.' : '✏️ 직접 적어 넣을 수 있어요.'),
+        : h('div', { class: 'eg-dempty' }, '수준별 점수가 아직 없어요.', h('br'), src?.text ? '✨ 버튼을 누르면 계획서에서 찾아 정리합니다.' : '✏ 직접 적어 넣을 수 있어요.'),
       c.deduct ? h('div', { class: 'eg-note' }, '➖ 감점: ', c.deduct) : null,
       it.scoring ? h('div', { class: 'eg-dscore' }, h('b', null, '🧮 이 평가 점수 계산'), h('div', null, it.scoring)) : null,
       h('div', { class: 'row gap wrap eg-dact' }, findBtn, tab ? editBtn : null, h('span', { class: 'grow' }),
@@ -697,7 +697,7 @@ function renderExam(g, { big = false, part = null } = {}) {
         h('thead', null, h('tr', null, h('th', null, '날짜'), Array.from({ length: maxP }, (_, k) => h('th', null, `${k + 1}교시`)))),
         h('tbody', null, g.timetable.map(d => h('tr', null, h('td', null, h('b', null, d.dateText || d.date)), Array.from({ length: maxP }, (_, k) => { const pp = (d.periods || [])[k]; return h('td', { class: pp && subjRe.test(pp.subject) ? 'ex-hit' : '' }, pp ? pp.subject : ''); }))))))));
   }
-  if (show('notes') && (g.notes || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '⚠️ 꼭 알아 두세요'), h('div', { class: 'eg-notes' }, g.notes.map(n => h('div', { class: 'eg-note' }, n)))));
+  if (show('notes') && (g.notes || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '⚠ 꼭 알아 두세요'), h('div', { class: 'eg-notes' }, g.notes.map(n => h('div', { class: 'eg-note' }, n)))));
   if (show('notes') && (g.faq || []).length) wrap.append(h('div', { class: 'eg-sec' }, h('h3', null, '🙋 자주 묻는 질문'), h('div', { class: 'eg-faq' }, g.faq.map(f => h('details', null, h('summary', null, 'Q. ', f.q), h('p', null, 'A. ', f.a))))));
   if (!(g.exams || []).length && show('cover')) wrap.append(h('div', { class: 'eg-dempty' }, '가정통신문에서 이 과목을 찾지 못했어요. 위의 [찾을 과목]을 통신문 표기대로 고친 뒤 ✨ 다시 만들기를 눌러 주세요.'));
   return wrap;
@@ -722,7 +722,7 @@ function examToHTML(g) {
 }
 
 /* 정기시험 안내 직접 고치기 */
-/* ✏️ 수행평가 안내 고치기 — 왼쪽에서 고치면 오른쪽 학생 화면이 바로 바뀜 */
+/* ✏ 수행평가 안내 고치기 — 왼쪽에서 고치면 오른쪽 학생 화면이 바로 바뀜 */
 function editGuide(g0, tab) {
   const g = JSON.parse(JSON.stringify(g0)); g.items ||= [];
   const inp = (v, ph, cls = 'full') => { const i = h('input', { class: cls, placeholder: ph }); i.value = v ?? ''; return i; };
@@ -765,9 +765,9 @@ function editGuide(g0, tab) {
   drawItems();
   const form = h('div', { class: 'stack ee-form' }, L('제목', head.title), L('한 줄 요약', head.summary), itemBox,
     h('button', { class: 'btn', onclick: () => { collect(); g.items.push({ name: '새 평가', ratio: '', criteria: [], tips: [] }); drawItems(); redraw(); } }, '+ 평가 더하기'),
-    L('🗓 일정', sched), L('⚠️ 꼭 알아 두세요', notes), L('🙋 자주 묻는 질문', faq));
+    L('🗓 일정', sched), L('⚠ 꼭 알아 두세요', notes), L('🙋 자주 묻는 질문', faq));
   const side = h('div', { class: 'ee-pv' }, h('div', { class: 'ee-pv-head' }, '👀 학생 화면 미리보기', h('small', { class: 'muted' }, ' — 고치는 대로 바로 바뀌어요')), pv);
-  const m = modal({ title: '✏️ 수행평가 안내 고치기', wide: true, body: h('div', { class: 'ee-split' }, form, side),
+  const m = modal({ title: '✏ 수행평가 안내 고치기', wide: true, body: h('div', { class: 'ee-split' }, form, side),
     actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { const ng = collect(); ng.auto = false; Store.set('evalguide:' + tab, ng); renderEval(); } }] });
   m.el.parentElement.classList.add('xwide');
   draw();
@@ -796,9 +796,9 @@ function editExam(g) {
   Object.values(f).forEach(el => { el.addEventListener('input', redraw); el.addEventListener('change', redraw); });
   const form = h('div', { class: 'stack ee-form' }, L('제목', f.title), L('한 줄 요약', f.summary), L('고사 이름', f.name),
     h('div', { class: 'row gap wrap' }, L('날짜 (보이는 글자)', f.dateText), L('날짜 (D-day 계산)', f.date), L('교시', f.period), L('시간', f.time)),
-    L('📚 시험 범위', f.range), L('📝 문항 구성', f.format), L('🎒 준비물', f.materials), L('📌 이 과목 유의 사항', f.exNotes), L('⚠️ 시험 전체 유의 사항', f.notes));
+    L('📚 시험 범위', f.range), L('📝 문항 구성', f.format), L('🎒 준비물', f.materials), L('📌 이 과목 유의 사항', f.exNotes), L('⚠ 시험 전체 유의 사항', f.notes));
   const side = h('div', { class: 'ee-pv' }, h('div', { class: 'ee-pv-head' }, '👀 학생 화면 미리보기', h('small', { class: 'muted' }, ' — 고치는 대로 바로 바뀌어요')), pv);
-  const m = modal({ title: '✏️ 정기시험 안내 고치기', wide: true, body: h('div', { class: 'ee-split' }, form, side),
+  const m = modal({ title: '✏ 정기시험 안내 고치기', wide: true, body: h('div', { class: 'ee-split' }, form, side),
     actions: [{ label: '취소' }, { label: '저장', primary: true, onClick: () => { Store.set('evalguide:written', collect()); renderEval(); } }] });
   m.el.parentElement.classList.add('xwide');
   draw();

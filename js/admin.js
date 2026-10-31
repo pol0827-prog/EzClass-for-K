@@ -130,7 +130,7 @@ function renderEval() {
     h('div', { class: 'row gap wrap' }, h('div', { class: 'tabs' }, [['perf', '📝 수행평가 안내'], ['written', '🧾 정기시험 안내']].map(([k, l]) => h('button', { class: 'tab' + (tab === k ? ' on' : ''), onclick: () => { Store.set('local:evalTab', k); renderEval(); } }, l))),
       h('span', { class: 'grow' }),
       h('button', { class: 'btn primary', title: tab === 'written' ? '정기시험 가정통신문(HWP·HWPX·PDF)을 올리거나 다시 올려요' : '평가 계획서(HWP·HWPX·PDF)를 올리거나 다시 올려요', onclick: () => uploadEvalDoc(tab) }, Store.get('evalsrc:' + tab) ? '📎 파일 다시 올리기' : '📎 파일 올리기'),
-      vbtn('guide', '🎨 학생용 안내'), Store.get('evalpdf:' + tab) ? vbtn('pdf', '📄 원본 PDF') : null, Store.get('evalsrc:' + tab) && !Store.get('evalpdf:' + tab) ? vbtn('src', '📄 원문') : null, vbtn('doc', '✏️ 안내문 편집')),
+      vbtn('guide', '🎨 학생용 안내'), Store.get('evalpdf:' + tab) ? vbtn('pdf', '📄 원본 PDF') : null, Store.get('evalsrc:' + tab) && !Store.get('evalpdf:' + tab) ? vbtn('src', '📄 원문') : null, vbtn('doc', '✏ 안내문 편집')),
     view === 'guide' ? evalGuideView(tab, ed, save) : view === 'pdf' ? evalPdf(tab, ed, save) : view === 'src' ? h('pre', { class: 'eg-src' }, Store.get('evalsrc:' + tab)?.text || '') : [tb, ed, tipI('자유롭게 고쳐 쓰면 자동 저장됩니다. 점수 입력·미이수 예측은 [성적] 메뉴에서 합니다.')]));
 }
 
@@ -161,7 +161,7 @@ function boardTextDialog(ink, onOk, init = null) {
     h('label', { class: 'small' }, '직접 ', h('input', { type: 'color', value: st.color, oninput: e => { st.color = e.target.value; upd(); } })));
   const sizes = h('div', { class: 'row gap wrap' }, BOARD_SIZES.map(([l, v]) => { const b = h('button', { class: 'btn sm bt-size', onclick: () => { st.size = v; upd(); } }, l); b.dataset.s = v; return b; }));
   const boldB = h('button', { class: 'btn sm', onclick: () => { st.bold = !st.bold; upd(); } }, h('b', null, '굵게'));
-  modal({ title: init ? '✏️ 글자 고치기' : '𝐓 칠판에 글자 쓰기', wide: true, body: h('div', { class: 'stack' }, ta, prev,
+  modal({ title: init ? '✏ 글자 고치기' : '𝐓 칠판에 글자 쓰기', wide: true, body: h('div', { class: 'stack' }, ta, prev,
     h('div', null, h('b', null, '글씨체'), fonts), h('div', { class: 'row gap wrap' }, h('b', null, '색'), cols), h('div', { class: 'row gap wrap' }, h('b', null, '크기'), sizes, boldB)),
     actions: [{ label: '취소' }, { label: init ? '고치기' : '쓰기', primary: true, onClick: async () => { const t = ta.value.replace(/\s+$/, ''); if (!t) { toast('글자를 입력하세요', 'warn'); return false; } Store.set('local:boardText', { font: st.font, color: st.color, size: st.size, bold: st.bold }); await boardFontLoad(st.font); onOk({ text: t, font: st.font, color: st.color, size: st.size, bold: st.bold }); } }] });
   upd(); setTimeout(() => ta.focus(), 50);
@@ -267,7 +267,7 @@ function renderGrades() {
   const cls = S.cls(); if (!cls) { root.append(emptyPic('🪑', '설정에서 학급을 먼저 만드세요', h('a', { class: 'btn primary lg', href: '#settings', onclick: () => Store.set('local:setTab', 'class') }, '학급 만들기'))); return; }
   const gtab = Store.get('local:gradeTab', 'files');
   const gtabs = h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, `📊 성적 · 미이수 예측 — ${cls.name}`),
-    h('div', { class: 'tabs' }, [['files', '📥 성적 자료 올리기'], ['predict', '🚨 미이수 예측'], ['manual', '✏️ 직접 입력']].map(([k, l]) => h('button', { class: 'tab' + (gtab === k ? ' on' : ''), onclick: () => { Store.set('local:gradeTab', k); renderGrades(); } }, l))));
+    h('div', { class: 'tabs' }, [['files', '📥 성적 자료 올리기'], ['predict', '🚨 미이수 예측'], ['manual', '✏ 직접 입력']].map(([k, l]) => h('button', { class: 'tab' + (gtab === k ? ' on' : ''), onclick: () => { Store.set('local:gradeTab', k); renderGrades(); } }, l))));
   if (gtab === 'predict') { const p = h('div', { class: 'full-panel' }, gtabs); root.append(p); renderPredict(p, cls); return; }
   if (gtab === 'files') { const p = h('div', { class: 'full-panel' }, gtabs); root.append(p); renderGradeFiles(p, cls); return; }
   root.append(h('div', { class: 'full-panel' }, gtabs));
@@ -309,8 +309,8 @@ function renderGrades() {
           for (const row of rows.slice(1)) { const num = String(row[ni] ?? '').trim(); if (!num) continue; g.items.forEach(it => { const ci = hd.indexOf(it.name); if (ci >= 0 && row[ci] !== undefined && row[ci] !== '') { (g.scores[num] = g.scores[num] || {})[it.id] = +row[ci]; n++; } }); }
           save(); drawTable(); toast(`점수 ${n}개를 올렸습니다`);
         } catch (e) { toast('업로드 실패: ' + e.message, 'err'); }
-      } }, '⬆️ 엑셀 업로드'),
-      h('button', { class: 'btn', onclick: () => { const ws = XLSX.utils.aoa_to_sheet([['번호', '이름', ...g.items.map(i => i.name)], ...studs.map(s => [+s.num, s.name, ...g.items.map(i => g.scores[s.num]?.[i.id] ?? '')])]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '점수'); saveWorkbook(wb, `${cls.name}_점수.xlsx`); } }, '⬇️ 점수 양식/내보내기')),
+      } }, '⬆ 엑셀 업로드'),
+      h('button', { class: 'btn', onclick: () => { const ws = XLSX.utils.aoa_to_sheet([['번호', '이름', ...g.items.map(i => i.name)], ...studs.map(s => [+s.num, s.name, ...g.items.map(i => g.scores[s.num]?.[i.id] ?? '')])]); const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '점수'); saveWorkbook(wb, `${cls.name}_점수.xlsx`); } }, '⬇ 점수 양식/내보내기')),
     h('div', { class: 'card soft' }, itemsBox),
     tipI('미이수 예측: 지금까지 입력한 평가의 성취율이 40% 미만일 때만 표시합니다.'),
     tbl));
@@ -365,7 +365,7 @@ function renderMemo() {
   };
   const mergeBtn = h('button', { class: 'btn', onclick: () => mergeMemos(cls, studs, sel) }, '🧩 하나로 합치기');
   const updPick = () => { const n = [...MemoState.pick].filter(id => all.some(m => m.id === id)).length; mergeBtn.textContent = n ? `🧩 고른 ${n}개 합치기` : (sel ? '🧩 하나로 합치기' : '🧩 학생별로 합치기'); };
-  const dlBtn = h('button', { class: 'btn', onclick: () => downloadMemos(cls, studs) }, '⬇️ 파일로 받기');
+  const dlBtn = h('button', { class: 'btn', onclick: () => downloadMemos(cls, studs) }, '⬇ 파일로 받기');
   const draftBtn = sel ? h('button', { class: 'btn', onclick: () => withBusy(draftBtn, '초안 작성 중…', () => sekteukDraft(cls, sel)) }, '✨ 세특 문장 초안') : null;
   root.append(h('div', { class: 'memo-layout' }, left, h('div', { class: 'memo-main' },
     h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📝 학생 관찰 메모', sel ? ` — ${sel.num} ${sel.name}` : '', sel && stuRole(cls, sel.num) ? h('span', { class: 'stu-role big' }, '🧹 ' + stuRole(cls, sel.num)) : null, sel?.note ? h('span', { class: 'stu-note big' }, '📌 ' + sel.note) : null), search, mergeBtn, dlBtn, draftBtn),
@@ -421,7 +421,7 @@ function renderRoles(root, cls) {
   const paste = h('textarea', { class: 'full', rows: 4, placeholder: '한꺼번에 넣기 — 한 줄에 "번호 역할"\n1 칠판 정리\n2 출결 도우미' });
   root.append(dl, h('div', { class: 'stack role-page' },
     h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '🧹 1인 1역', h('small', { class: 'muted' }, `  ${cls.name} · 역할 정한 학생 ${filled}/${studs.length}명`)),
-      h('button', { class: 'btn', onclick: () => downloadRoles(cls) }, '⬇️ 엑셀로 받기')),
+      h('button', { class: 'btn', onclick: () => downloadRoles(cls) }, '⬇ 엑셀로 받기')),
     h('div', { class: 'small muted' }, '역할 칸에 쓰거나 목록에서 고르면 바로 저장돼요. 역할을 바꾸면 이전 역할도 기록으로 남아요. [📝 수행 기록]은 관찰 메모(1인 1역)로 쌓여 학생부 엑셀과 ✨ 세특 초안에 들어가요.'),
     h('div', { class: 'table-wrap' }, h('table', { class: 'grid-tbl role-tbl' }, h('thead', null, h('tr', null, h('th', null, '번호'), h('th', null, '이름'), h('th', null, '맡은 역할'), h('th', null, '시작일'), h('th', null, '기록'), h('th', null, ''))), h('tbody', null, rows))),
     h('details', { class: 'card soft' }, h('summary', null, '📋 한꺼번에 넣기'), h('div', { class: 'stack' }, paste,
@@ -482,7 +482,7 @@ function renderStamps(root, cls) {
     h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '🌟 칭찬 도장', h('small', { class: 'muted' }, `  ${cls.name} · 모두 ${all.length}개`)),
       StampState.last ? h('button', { class: 'btn', onclick: () => { delStamp(cls, StampState.last.id); StampState.last = null; toast('방금 준 도장을 취소했어요'); renderMemo(); } }, '↶ 방금 준 도장 취소') : null,
       h('button', { class: 'btn', onclick: () => editStampTypes() }, '⚙ 도장 종류'),
-      h('button', { class: 'btn', onclick: () => downloadStamps(cls) }, '⬇️ 엑셀로 받기')),
+      h('button', { class: 'btn', onclick: () => downloadStamps(cls) }, '⬇ 엑셀로 받기')),
     h('div', { class: 'card soft stack' },
       h('div', { class: 'row gap wrap' }, h('b', null, '① 도장 고르기'), typeChips),
       h('div', { class: 'row gap wrap' }, h('b', null, '② 내용·날짜'), reason, date, memoToo),
@@ -579,7 +579,7 @@ function downloadMemos(cls, studs) {
     saveWorkbook(wb, `${cls.name}_관찰메모_${todayStr()}.xlsx`);
   };
   const text = () => saveTextFile(`${cls.name}_관찰메모_${todayStr()}.txt`, '﻿' + order.map(n => `■ ${n}번 ${name(n)} (${byNum[n].length}개)\n${memoJoin(byNum[n])}`).join('\n\n'), 'text/plain;charset=utf-8');
-  const m = modal({ title: '⬇️ 관찰 메모 파일로 받기', body: h('div', { class: 'grid2' },
+  const m = modal({ title: '⬇ 관찰 메모 파일로 받기', body: h('div', { class: 'grid2' },
     h('button', { class: 'big-choice', onclick: () => { excel(); m.close(); } }, h('div', { class: 'eg-drop-ic' }, '📊'), h('b', null, '엑셀'), h('small', { class: 'muted' }, '학생별 모음 · 분류별 · 전체 기록')),
     h('button', { class: 'big-choice', onclick: () => { text(); m.close(); } }, h('div', { class: 'eg-drop-ic' }, '📄'), h('b', null, '글 파일 (.txt)'), h('small', { class: 'muted' }, '한글·메모장에 붙여 넣기 좋게'))),
     actions: [{ label: '닫기' }] });
@@ -806,14 +806,14 @@ function attLog(cls, studs, att) {
           dates.map(d => { const v = att[d]?.[s.num]; return h('td', { style: v ? { background: ATT[v][1], color: '#fff' } : null }, v ? v[0] : ''); })); })))));
 }
 
-/* ---------- ⚙️ 설정 ---------- */
+/* ---------- ⚙ 설정 ---------- */
 function renderSettings() {
   const root = $('#view'); root.replaceChildren();
   const tab = Store.get('local:setTab', 'class');
-  const T = [['brand', '🏷 과목·이름'], ['class', '👥 학급·명렬표'], ...(FB.fileConfig() ? [] : [['server', '📡 학생 응답 서버']]), ['std', '📚 성취기준'], ['promise', '🤝 수업 약속'], ['bell', '⏰ 시정표'], ['check', '🔧 교실 점검'], ['privacy', '🧹 개인정보·학기말'], ...(FB.ready && FB.isAdmin && FB.isAdmin() ? [['teachers', '👩‍🏫 함께 쓰는 선생님']] : []), ['backup', '💾 백업'], ['guide', '📖 사용 안내서']];
+  const T = [['brand', '🏷 과목·이름'], ['class', '👥 학급·명렬표'], ...(FB.fileConfig() ? [] : [['server', '📡 학생 응답 서버']]), ['std', '📚 성취기준'], ['promise', '🤝 수업 약속'], ['bell', '⏰ 시정표'], ['check', '🔧 교실 점검'], ['privacy', '🧹 개인정보·학기말'], ['lock', '🔒 잠금 비밀번호'], ...(FB.ready && FB.isAdmin && FB.isAdmin() ? [['teachers', '👩‍🏫 함께 쓰는 선생님']] : []), ['backup', '💾 백업'], ['guide', '📖 사용 안내서']];
   const body = h('div', { class: 'set-body' });
-  root.append(h('div', { class: 'full-panel' }, h('h2', null, '⚙️ 설정'), h('div', { class: 'tabs' }, T.map(([k, l]) => h('button', { class: 'tab' + (tab === k ? ' on' : ''), onclick: () => { Store.set('local:setTab', k); renderSettings(); } }, l))), body));
-  ({ brand: setBrand, class: setClass, server: setServer, std: setStandards, check: setCheck, privacy: setPrivacy, teachers: setTeachers, promise: setPromise, bell: setBell, backup: setBackup, guide: setGuide })[T.some(t => t[0] === tab) ? tab : 'class'](body);
+  root.append(h('div', { class: 'full-panel' }, h('h2', null, '⚙ 설정'), h('div', { class: 'tabs' }, T.map(([k, l]) => h('button', { class: 'tab' + (tab === k ? ' on' : ''), onclick: () => { Store.set('local:setTab', k); renderSettings(); } }, l))), body));
+  ({ brand: setBrand, class: setClass, server: setServer, std: setStandards, check: setCheck, privacy: setPrivacy, lock: setLockPin, teachers: setTeachers, promise: setPromise, bell: setBell, backup: setBackup, guide: setGuide })[T.some(t => t[0] === tab) ? tab : 'class'](body);
 }
 function setBell(body) {
   const b = Bell.get(), list = b.periods.map(p => ({ ...p }));
@@ -844,7 +844,7 @@ function setPromise(body) {
   const loop = async () => { cancelAnimationFrame(raf); await Intro.fonts(); const ctx = prev.getContext('2d'), t0 = performance.now(); const f = () => { if (!prev.isConnected) return; const t = ((performance.now() - t0) / 1000) % (Intro.PDUR + 1); Intro.drawPromises(ctx, 960, 540, Math.min(t, Intro.PDUR), { ...Intro.opts(), pr: Intro.promises() }); raf = requestAnimationFrame(f); }; f(); };
   body.append(h('div', { class: 'stack', style: { maxWidth: '980px' } }, tipI('앱을 열 때 3초 로고 뒤에 5초 동안 수업 약속이 나옵니다. 고치면 바로 아래 미리보기에 반영돼요.'),
     promiseEditor(loop), prev,
-    h('div', { class: 'row gap wrap' }, h('button', { class: 'btn', onclick: () => Intro.play({ force: true }) }, '▶ 시작 영상 보기'), h('button', { class: 'btn primary', onclick: e => withBusy(e.currentTarget, '녹화 중…', () => Intro.record()) }, '⬇️ 영상 파일로 저장 (1080p)'))));
+    h('div', { class: 'row gap wrap' }, h('button', { class: 'btn', onclick: () => Intro.play({ force: true }) }, '▶ 시작 영상 보기'), h('button', { class: 'btn primary', onclick: e => withBusy(e.currentTarget, '녹화 중…', () => Intro.record()) }, '⬇ 영상 파일로 저장 (1080p)'))));
   setTimeout(loop, 50);
 }
 /* 📎 성취수준·교육과정 문서(HWP·HWPX·PDF)에서 과목별 성취기준만 뽑아 저장 */
@@ -889,8 +889,8 @@ function setStandards(body) {
       h('div', { class: 'row gap wrap' }, h('button', { class: 'btn primary', onclick: () => { const add = Standards.parse(paste.value); if (!add.length) return toast('붙여 넣은 내용이 없습니다', 'warn'); const have = new Set(list.map(x => x.code + x.text)); add.forEach(x => { if (!have.has(x.code + x.text)) list.push(x); }); save(); toast(`${add.length}개를 넣었습니다`, 'ok'); renderSettings(); } }, '추가하기'),
         h('button', { class: 'btn', onclick: () => { list.push({ code: '', text: '' }); drawRows(); } }, '+ 한 줄 직접'),
         h('span', { class: 'grow' }),
-        h('button', { class: 'btn', onclick: () => saveTextFile(`성취기준_${subj}.json`, JSON.stringify({ app: 'hwajak-standards', subject: subj, list: Standards.get(subj) }, null, 1)) }, '⬇️ 내보내기 (동료와 공유)'),
-        h('button', { class: 'btn', onclick: async () => { const f = await pickFile('.json'); if (!f) return; try { const o = JSON.parse(await readFileAs(f, 'text')); if (!Array.isArray(o.list)) throw 0; Standards.set(o.subject || subj, o.list); Store.set('local:stdSubj', o.subject || subj); toast('가져왔습니다'); renderSettings(); } catch { toast('성취기준 파일이 아닙니다', 'err'); } } }, '⬆️ 가져오기'),
+        h('button', { class: 'btn', onclick: () => saveTextFile(`성취기준_${subj}.json`, JSON.stringify({ app: 'hwajak-standards', subject: subj, list: Standards.get(subj) }, null, 1)) }, '⬇ 내보내기 (동료와 공유)'),
+        h('button', { class: 'btn', onclick: async () => { const f = await pickFile('.json'); if (!f) return; try { const o = JSON.parse(await readFileAs(f, 'text')); if (!Array.isArray(o.list)) throw 0; Standards.set(o.subject || subj, o.list); Store.set('local:stdSubj', o.subject || subj); toast('가져왔습니다'); renderSettings(); } catch { toast('성취기준 파일이 아닙니다', 'err'); } } }, '⬆ 가져오기'),
         list.length ? h('button', { class: 'btn', onclick: async () => { if (await confirmBox(`${subj} 성취기준을 모두 지울까요?`, '지우기', true)) { Standards.set(subj, []); renderSettings(); } } }, '모두 지우기') : null))));
   drawRows();
 }
@@ -906,7 +906,7 @@ function setClass(body) {
   const loadSt = async () => { try { pinSt = await Live.rosterStatus(cur.room || S.room()); } catch (e) { console.warn(e); pinSt = null; } draw(); };
   const keySync = debounce(async (force = false) => {
     if (!Keys.canPublish()) { keyState.textContent = Live.cloud() ? '⚠ 교사 로그인 후 서버에 반영돼요' : ''; return; }
-    keyState.textContent = '☁️ 반영 중…';
+    keyState.textContent = '☁ 반영 중…';
     try { await Keys.syncAll(force); keyState.textContent = '✅ 학생 확인 명단이 서버에 반영됨'; await loadSt(); }
     catch (e) { console.error(e); keyState.textContent = '❌ 반영 실패 — ' + fbWhy(e); }
   }, 800);
@@ -939,7 +939,7 @@ function setClass(body) {
         h('div', { class: 'row gap wrap' },
           h('button', { class: 'btn sm', onclick: () => loadSt() }, '↻ 새로 보기'),
           h('button', { class: 'btn sm', onclick: () => Lock.guard(() => resetPins(S.students(cur), `${cur.name} 학생 전체`), '🔒 비밀번호 전체 초기화 — 비밀번호') }, '🔄 전체 초기화'),
-          h('button', { class: 'btn sm', onclick: () => keySync(true) }, '☁️ 서버에 다시 반영')),
+          h('button', { class: 'btn sm', onclick: () => keySync(true) }, '☁ 서버에 다시 반영')),
         keyState),
       tbl),
     h('div', { class: 'stack' }, h('h3', null, '명렬표 넣기'), paste,
@@ -956,7 +956,7 @@ function setBrand(body) {
   const b = Store.get('brand', {}), cur = Brand.get();
   const save = patch => { Store.set('brand', { ...Store.get('brand', {}), ...patch }); toast('저장했습니다'); };
   const other = h('input', { class: 'line-in', placeholder: '목록에 없으면 직접 쓰기', value: ['국어', ...SUBJECTS_2022.flatMap(g => g[1])].includes(cur.subject) ? '' : cur.subject });
-  const title = h('input', { class: 'full', value: b.title || '', placeholder: cur.subject + ' 수업실' });
+  const title = h('input', { class: 'full', value: b.title || '', placeholder: '국어 수업실' });
   const logo = h('input', { class: 'w60', maxlength: 2, value: b.logo || '', placeholder: cur.subject[0] });
   const teacher = h('input', { class: 'w120', maxlength: 4, value: b.teacher || '', placeholder: '예: 김수진' });
   body.append(h('div', { class: 'card stack', style: { maxWidth: '980px', alignItems: 'center', textAlign: 'center' } },
@@ -1008,7 +1008,7 @@ function introSettings() {
     promiseEditor(loop),
     h('div', { class: 'row gap wrap' },
       h('button', { class: 'btn', onclick: () => Intro.play({ force: true }) }, '▶ 시작 영상 보기'),
-      h('button', { class: 'btn primary', onclick: e => withBusy(e.currentTarget, '녹화 중…', () => Intro.record()) }, '⬇️ 영상 파일로 저장 (1080p)')),
+      h('button', { class: 'btn primary', onclick: e => withBusy(e.currentTarget, '녹화 중…', () => Intro.record()) }, '⬇ 영상 파일로 저장 (1080p)')),
     h('div', { class: 'row gap wrap' }, h('b', null, '앱 시작 영상'), h('span', { class: 'tag' }, Store.get('local:introVideo') ? '직접 넣은 영상' : '기본 영상'),
       h('button', { class: 'btn', onclick: async () => { const f = await pickFile('video/*'); if (!f) return; if (f.size > 25e6) return toast('25MB 이하 영상만 넣을 수 있어요', 'warn'); Store.set('local:introVideo', await readFileAs(f)); Store.set('local:introHasPromises', false); toast('앱 시작 영상을 바꿨습니다'); renderSettings(); } }, '🎞 내 영상 넣기'),
       Store.get('local:introVideo') ? h('button', { class: 'btn', onclick: () => { Store.del('local:introVideo'); toast('기본 영상으로 되돌렸습니다'); renderSettings(); } }, '기본 영상으로') : null,
@@ -1123,9 +1123,9 @@ function setTraps(body) {
 function setBackup(body) {
   body.append(h('div', { class: 'stack narrow' },
     h('p', null, '모든 자료(학급·지문·AI 분석·필기·칠판·출결·메모·성적·평가 안내)를 파일 하나로 저장하거나 되살립니다. 학생 응답은 서버에 있으므로 [학생부용 엑셀]로 따로 받으세요.'),
-    h('div', { class: 'row gap' }, h('button', { class: 'btn primary', onclick: () => Lock.guard(() => saveTextFile(`${Brand.get().title}_백업_${todayStr()}.json`, JSON.stringify(Store.exportAll())), '🔒 전체 백업 — 비밀번호') }, '⬇️ 전체 백업'),
-      h('button', { class: 'btn', onclick: async () => { const f = await pickFile('.json'); if (!f) return; try { Store.importAll(JSON.parse(await readFileAs(f, 'text'))); toast('복원했습니다'); setTimeout(() => location.reload(), 600); } catch (e) { toast(e.message, 'err'); } } }, '⬆️ 백업 복원')),
-    h('button', { class: 'btn', onclick: exportExcel }, '⬇️ 학생부용 엑셀 (현재 학급)'),
+    h('div', { class: 'row gap' }, h('button', { class: 'btn primary', onclick: () => Lock.guard(() => saveTextFile(`${Brand.get().title}_백업_${todayStr()}.json`, JSON.stringify(Store.exportAll())), '🔒 전체 백업 — 비밀번호') }, '⬇ 전체 백업'),
+      h('button', { class: 'btn', onclick: async () => { const f = await pickFile('.json'); if (!f) return; try { Store.importAll(JSON.parse(await readFileAs(f, 'text'))); toast('복원했습니다'); setTimeout(() => location.reload(), 600); } catch (e) { toast(e.message, 'err'); } } }, '⬆ 백업 복원')),
+    h('button', { class: 'btn', onclick: exportExcel }, '⬇ 학생부용 엑셀 (현재 학급)'),
     h('button', { class: 'btn', onclick: () => Lock.change() }, '🔒 잠금 비밀번호 바꾸기'),
     h('p', { class: 'small muted' }, `저장된 항목 ${Store.keys().length}개 · ${FB.user ? '클라우드 동기화 중 (' + FB.user.email + ')' : '이 기기에만 저장 중'}`)));
 }
@@ -1174,7 +1174,7 @@ function setGuide(body) {
           h('li', null, '[⏹ 응답 마감]을 누르면 그 질문은 더 제출되지 않아요.'))),
       item('📖', '배움', '교재 PDF에서 가져온 지문과 문제를 띄우고 판서합니다.',
         h('ul', null, h('li', null, '위쪽 [수업 자료 선택] → [+ PDF 가져오기]로 교재를 넣으면 지문 세트별로 나뉘어요.'),
-          h('li', null, '✍️ 필기를 켜면 펜·형광펜·지우개(문지르기 🧽 / 통째로 ✂️, 크기 5단계)를 쓸 수 있어요.'),
+          h('li', null, '✍ 필기를 켜면 펜·형광펜·지우개(문지르기 🧽 / 통째로 ✂, 크기 5단계)를 쓸 수 있어요.'),
           h('li', null, '⚡ 킬러 O/X, 🗺 구조화는 AI가 지문을 분석해 만들어 줘요.'))),
       item('🤝', '배움공유', '모둠 활동을 만들면 모둠 대표가 QR로 글·사진·영상 링크를 올리고, 그대로 발표 슬라이드가 됩니다.',
         h('ul', null, h('li', null, '[👥 모둠 짜기]로 무작위·자리대로 모둠을 나눠요.'), h('li', null, '[🖥 발표 시작]에서 판서·발표 타이머를 쓰고, 잘한 모둠에 🏆 그랑프리를 줘요.'))),
@@ -1194,14 +1194,14 @@ function setGuide(body) {
           h('li', null, '출결 모드에서 학생 자리를 ', h('b', null, 'Shift+클릭'), '하면 그 학생 관찰 메모 창이 바로 열려요.'))),
       item('📝', '관찰 메모 🔒', '학생별 관찰 기록을 분류(1인 1역·수업 태도·발표·탐구력·성장 등)와 함께 남깁니다.',
         h('ul', null, h('li', null, '설정 → 명렬표의 ', h('b', null, '비고'), '가 학생 이름 옆에 주황색으로 떠요(예: 앞자리 배려).'),
-          h('li', null, '🧩 학생별로 합치기, ⬇️ 엑셀·텍스트로 받기, ✨ AI 세특 문장 초안.'),
+          h('li', null, '🧩 학생별로 합치기, ⬇ 엑셀·텍스트로 받기, ✨ AI 세특 문장 초안.'),
           h('li', null, h('b', null, '🧹 1인 1역'), ' 탭 — 학생마다 맡은 역할을 쓰거나 골라 저장하고(바꾸면 이전 역할도 남아요), [📝 수행 기록]으로 수행 모습을 남겨요. 역할이 관찰 메모의 이름 옆에 보이고, 학생부 엑셀·세특 초안에 들어가요.'),
           h('li', null, h('b', null, '🌟 칭찬 도장'), ' 탭 — 도장 종류(발표·질문·협력·탐구 등)를 고르고 학생을 누르면 날짜·칭찬 내용과 함께 찍혀요. 학생별 개수, 종류별 통계, 엑셀 받기가 되고 세특 초안·학생부 엑셀에도 들어가요.'))),
       item('📊', '성적 🔒', 'NEIS 일람표(학기말 성적·정기시험·수행평가)를 올리면 이름·학번은 버리고 반/번호와 점수만 저장합니다.',
         h('ul', null, h('li', null, '🚨 미이수 예측 — 40점 미만 학생을 알려 줘요.'), h('li', null, '📐 분할점수로 A~E 성취도를 계산해요.'))),
       item('📋', '평가 안내', '평가 계획서·정기시험 가정통신문(HWP·HWPX·PDF)을 올리면 학생용 그림 안내로 바꿔 줍니다.',
         h('ul', null, h('li', null, '정기시험은 [📘 우리 과목]을 고르면 우리 과목의 날짜·교시·범위·문항 구성만 골라 보여 줘요.'),
-          h('li', null, '[✏️ 내용 고치기]에서 오른쪽 미리보기를 보며 바로잡고, [🖥 크게 보며 설명]으로 수업 시간에 띄워요.')))),
+          h('li', null, '[✏ 내용 고치기]에서 오른쪽 미리보기를 보며 바로잡고, [🖥 크게 보며 설명]으로 수업 시간에 띄워요.')))),
 
     sec('student', '📱', '학생은 이렇게 참여해요',
       h('div', { class: 'ug-flow' },
@@ -1219,10 +1219,10 @@ function setGuide(body) {
 
     sec('safe', '🔒', '개인정보와 보안',
       h('ul', null, h('li', null, '이 홈페이지는 ', h('b', null, '등록된 교사 계정'), '으로 로그인해야 열립니다.'),
-        h('li', null, '관찰 메모·성적·학생부 엑셀·백업·학생 비밀번호·역량 어필은 ', h('b', null, '잠금 비밀번호'), '를 물어봐요. 처음 값은 1234이고 설정 → 💾 백업에서 바꿀 수 있어요. 숫자판 없이 키보드로만 입력해서 프로젝터에 보이지 않아요.'),
+        h('li', null, '관찰 메모·성적·학생부 엑셀·백업·과제 제출 관리·학생 비밀번호·역량 어필은 ', h('b', null, '잠금 비밀번호'), '를 물어봐요. 설정 → 🔒 잠금 비밀번호에서 바꿀 수 있어요. 숫자판 없이 키보드로만 입력해서 프로젝터에 보이지 않아요.'),
         h('li', null, '성적 파일에서 이름·학번은 저장하지 않아요. 학생 응답은 선생님 계정만 열람할 수 있어요.'),
         h('li', null, '학생과 함께 쓰는 컴퓨터에서는 수업 후 브라우저를 닫거나 왼쪽 아래에서 로그아웃해 주세요.'),
-        h('li', null, '학기 말에는 ⬇️ 학생부 엑셀을 받아 두세요.'))),
+        h('li', null, '학기 말에는 설정 → 💾 백업에서 학생부 엑셀을 받아 두세요.'))),
 
     sec('tips', '💡', '알아 두면 좋은 점',
       h('div', { class: 'ug-faq' },
@@ -1234,7 +1234,7 @@ function setGuide(body) {
       h('div', { class: 'row gap wrap' }, go('#home', '🏠 홈으로'), go('#open', '💡 배움열기 시작하기'), h('a', { href: '#settings', class: 'ug-go', onclick: () => { Store.set('local:setTab', 'class'); setTimeout(renderSettings, 0); } }, '👥 명렬표 넣기 →')))));
 }
 
-/* ---------- ⬇️ 학생부용 엑셀 ---------- */
+/* ---------- ⬇ 학생부용 엑셀 ---------- */
 async function exportExcel() { return Lock.guard(exportExcelNow, '🔒 학생부 엑셀 — 비밀번호'); }
 async function exportExcelNow() {
   const cls = S.cls(); if (!cls) return toast('학급을 먼저 만드세요', 'warn');

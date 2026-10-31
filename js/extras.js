@@ -2,7 +2,7 @@
 /* =========================================================
    ✨ 수업을 돕는 장치들
    - 🎬 수업 화면 모드 · 가 글씨/진한 색 · 수업 흐름 넘기기 · 연결 상태
-   - 🙋 이해 신호 · 🔎 근거 찾기 히트맵 · ⚖️ 두 응답 비교
+   - 🙋 이해 신호 · 🔎 근거 찾기 히트맵 · ⚖ 두 응답 비교
    - 처음 안내·예시 둘러보기 · 🔧 교실 점검 · 🧹 학기말 정리 · 👩‍🏫 함께 쓰는 선생님
    ========================================================= */
 KIND_LABEL.evid = '🔎 근거 찾기';
@@ -150,12 +150,12 @@ function evidStudentForm(a, send) {
   return h('div', { class: 'stu-card' }, h('div', { class: 'tag' }, '🔎 근거 찾기'), h('h2', { class: 'q' }, a.q), h('p', { class: 'small muted' }, `근거가 되는 문장을 눌러 고르세요 (${max}개까지). 친구들 화면에는 이름 없이 숫자만 보여요.`), box, btn);
 }
 
-/* ---------- ⚖️ 두 응답 나란히 (이름 없이) ---------- */
+/* ---------- ⚖ 두 응답 나란히 (이름 없이) ---------- */
 function compareTwo(a, b, q) {
   let showName = false;
   const st = h('div', { class: 'present cmp-present' });
   const card = (r, l) => h('div', { class: 'cmp-card' }, h('div', { class: 'cmp-l' }, l, showName ? h('small', null, ` ${r.num} ${r.name}`) : null), h('div', { class: 'cmp-t' }, r.kind === 'close' ? r.summary : ansText(r.answer)));
-  const draw = () => st.replaceChildren(h('div', { class: 'pres-top' }, h('b', null, '⚖️ 어느 쪽이 더 설득력 있을까? 어떻게 고치면 좋을까?'), h('span', { class: 'muted' }, q ? ' — ' + q : ''), h('span', { class: 'grow' }),
+  const draw = () => st.replaceChildren(h('div', { class: 'pres-top' }, h('b', null, '⚖ 어느 쪽이 더 설득력 있을까? 어떻게 고치면 좋을까?'), h('span', { class: 'muted' }, q ? ' — ' + q : ''), h('span', { class: 'grow' }),
     h('button', { class: 'btn sm', onclick: () => { showName = !showName; draw(); } }, showName ? '이름 숨기기' : '이름 보기'), h('button', { class: 'btn', onclick: () => st.remove() }, '✕')),
     h('div', { class: 'cmp-grid' }, card(a, 'A'), card(b, 'B')));
   draw(); document.body.append(st); toggleFull(st);
@@ -241,7 +241,7 @@ function setPrivacy(body) {
     tipI('학교마다 학생 개인정보 처리 지침이 달라요. 학기 초에 학생·학부모 안내가 필요한지 학교에 한 번 확인해 두세요.'),
     h('h3', null, '🧹 학기말 정리'),
     h('p', { class: 'small muted' }, '① 먼저 내려받고 ② 서버의 학생 자료를 지워요. 지운 자료는 되살릴 수 없어요.'),
-    h('div', { class: 'row gap wrap' }, h('button', { class: 'btn', onclick: () => exportExcel() }, '① ⬇️ 학생부용 엑셀 받기'), h('button', { class: 'btn', onclick: () => { Store.set('local:setTab', 'backup'); renderSettings(); } }, '① 💾 전체 백업 받기')),
+    h('div', { class: 'row gap wrap' }, h('button', { class: 'btn', onclick: () => exportExcel() }, '① ⬇ 학생부용 엑셀 받기'), h('button', { class: 'btn', onclick: () => { Store.set('local:setTab', 'backup'); renderSettings(); } }, '① 💾 전체 백업 받기')),
     h('div', { class: 'table-wrap' }, h('table', { class: 'grid-tbl' }, h('thead', null, h('tr', null, h('th', null, '학급'), h('th', null, '학생'), h('th', null, '② 서버 학생 자료'), h('th', null, '② 이 학급 기록'))),
       h('tbody', null, cs.map(c => h('tr', null, h('td', null, h('b', null, c.name)), h('td', null, `${(c.students || []).length}명`),
         h('td', null, h('button', { class: 'btn sm danger', onclick: e => Lock.guard(async () => {
@@ -270,4 +270,44 @@ function setTeachers(body) {
     h('div', { class: 'row gap' }, inp, h('button', { class: 'btn primary', onclick: async () => { const v = inp.value.trim().toLowerCase(); if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(v)) return toast('이메일 모양이 아니에요', 'warn'); if (!emails.includes(v)) emails.push(v); inp.value = ''; await save(); } }, '추가')),
     list, h('small', { class: 'muted' }, 'AI 기능은 Vercel의 AI 키를 함께 써요. 사용량이 많아지면 Vercel 환경 변수 TEACHER_EMAILS로 AI 쓸 선생님을 따로 정할 수 있어요.')));
   FB.loadTeachers().then(l => { emails = [...l]; draw(); });
+}
+
+/* ---------- 🙈 학생 이름 가리기: 화면에 보이는 학생 이름은 가운데 글자를 ○로 (김민지 → 김○지) ----------
+   저장된 이름은 그대로(로그인·학생부 엑셀용). 화면 글자만 바꾼다. 입력칸 안 글자는 건드리지 않음. */
+const NameMask = {
+  re: null,
+  mask(n) { n = String(n || ''); if (n.length < 2) return n; if (n.length === 2) return n[0] + '○'; return n[0] + '○'.repeat(n.length - 2) + n[n.length - 1]; },
+  build() {
+    const long = new Set(), short = new Set();
+    try { (Store.get('classes', []) || []).forEach(c => (c.students || []).forEach(s => { const n = String(s.name || '').trim(); if (n.length >= 3) long.add(n); else if (n.length === 2) short.add(n); })); } catch { }
+    const esc = x => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const parts = [...[...long].sort((a, b) => b.length - a.length).map(esc), ...[...short].map(n => '(?<![가-힣])' + esc(n) + '(?![가-힣]{2})')];
+    this.re = parts.length ? new RegExp(parts.join('|'), 'g') : null;
+  },
+  fix(node) {
+    if (!this.re || !node) return;
+    const skip = el => el && el.closest && el.closest('textarea,input,[contenteditable="true"],script,style,.no-mask');
+    const one = t => { if (!t.nodeValue || skip(t.parentElement)) return; this.re.lastIndex = 0; if (!this.re.test(t.nodeValue)) return; this.re.lastIndex = 0; t.nodeValue = t.nodeValue.replace(this.re, m => this.mask(m)); };
+    if (node.nodeType === 3) return one(node);
+    if (node.nodeType !== 1 || skip(node)) return;
+    const w = document.createTreeWalker(node, NodeFilter.SHOW_TEXT); let t; while ((t = w.nextNode())) one(t);
+  },
+  mount() {
+    if (this.obs || document.body.classList.contains('student')) return;
+    this.build();
+    on('classes', () => { this.build(); this.fix(document.body); });
+    this.obs = new MutationObserver(ms => { for (const m of ms) { if (m.type === 'characterData') this.fix(m.target); else m.addedNodes.forEach(n => this.fix(n)); } });
+    this.obs.observe(document.body, { childList: true, subtree: true, characterData: true });
+    this.fix(document.body);
+  }
+};
+
+/* ---------- 🔒 설정: 잠금 비밀번호 ---------- */
+function setLockPin(body) {
+  body.append(h('h3', null, '🔒 잠금 비밀번호'),
+    h('p', null, '관찰 메모 · 성적 · 학생부 엑셀 · 백업 · 과제 제출 관리를 열 때 묻는 숫자 4자리예요.'),
+    h('ul', { class: 'small muted' }, h('li', null, '화면에 숫자판을 띄우지 않고 키보드로만 입력해요. 프로젝터에 보이지 않아요.'),
+      h('li', null, '비밀번호는 알아볼 수 없는 값(해시)으로만 저장돼요.'),
+      h('li', null, '바꾸려면 지금 비밀번호를 먼저 넣어야 해요.')),
+    h('button', { class: 'btn primary', onclick: () => Lock.change() }, '🔒 비밀번호 바꾸기'));
 }

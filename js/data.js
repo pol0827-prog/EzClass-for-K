@@ -9,7 +9,7 @@ const Brand = {
     const b = Store.get('brand', {});
     const subject = (b.subject || '').trim() || '국어';
     const teacher = (b.teacher || '').trim();
-    return { subject, teacher, title: (b.title || '').trim() || subject + ' 수업실', logo: teacher || (b.logo || '').trim() || subject[0] };
+    return { subject, teacher, title: (() => { const t = (b.title || '').trim(); return (!t || t === '함께 자라는 국어 교실') ? '국어 수업실' : t; })(), logo: teacher || (b.logo || '').trim() || subject[0] };
   },
   apply() { document.title = this.get().title; }
 };
@@ -386,7 +386,7 @@ function openPdfImport() {
     } catch (e) { console.error(e); status.textContent = '읽기 실패: ' + e.message; }
   } }, '📄 PDF 선택');
   const aiBtn = h('button', { class: 'btn', onclick: () => { if (!parsed) return toast('먼저 PDF를 선택하세요', 'warn'); withBusy(aiBtn, 'AI가 나누는 중…', async () => { chapters = await PDFImport.aiSplit(parsed.pages); status.textContent = `AI가 지문 세트 ${chapters.length}개로 나눴습니다.`; draw(); }); } }, '✨ AI로 다시 나누기');
-  const pasteBtn = h('button', { class: 'btn', onclick: () => { m.close(); openChapterPaste(); } }, '✍️ PDF 없이 직접 붙여넣기');
+  const pasteBtn = h('button', { class: 'btn', onclick: () => { m.close(); openChapterPaste(); } }, '✍ PDF 없이 직접 붙여넣기');
   /* 스캔 PDF 패널 */
   const scanBox = h('div', { class: 'scan-box' });
   const showScan = () => {
@@ -433,7 +433,7 @@ function openChapterPaste(lesson) {
   const intro = h('input', { class: 'full', placeholder: '지시문 (선택) 예: (가)는 학생의 발표이고 … 물음에 답하시오.' });
   const p = h('textarea', { class: 'full', rows: 10, placeholder: '지문 본문 — 문단(발화)은 빈 줄로 구분' });
   const q = h('textarea', { class: 'full', rows: 10, placeholder: '1. 발문\n① 선지\n② 선지 …\n정답: 3' });
-  modal({ title: '✍️ 지문 직접 추가', wide: true, body: h('div', { class: 'stack' }, t, intro, p, q), actions: [{ label: '취소' }, { label: '추가', primary: true, onClick: () => {
+  modal({ title: '✍ 지문 직접 추가', wide: true, body: h('div', { class: 'stack' }, t, intro, p, q), actions: [{ label: '취소' }, { label: '추가', primary: true, onClick: () => {
     let l = lesson || S.lesson();
     if (!l) { l = { id: uid(), title: '직접 입력 수업', created: Date.now(), chapters: [] }; }
     const ch = { id: uid(), title: t.value || '새 지문', intro: intro.value, passage: p.value, questions: parseQuestionsText(q.value), ai: {}, gaze: [], ev: {} };

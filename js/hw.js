@@ -180,26 +180,40 @@ function renderHW() {
       h('div', { class: 'row' }, h('small', { class: 'muted grow' }, '⏰ ', HW.dueText(x.due)), h('button', { class: 'x', title: '고치기', onclick: e => { e.stopPropagation(); editHW(x); } }, '✎'),
         h('button', { class: 'x', title: '지우기', onclick: async e => { e.stopPropagation(); if (await confirmBox('이 과제를 목록에서 지울까요? (받은 제출물은 서버에 남아요)', '지우기', true)) { HW.save(HW.list().filter(y => y.id !== x.id)); renderHW(); } } }, '✕')),
       h('b', { class: 'clamp2' }, x.title)))))
-      : emptyPic('📤', '첫 과제 내기', h('button', { class: 'btn primary lg', onclick: () => editHW() }, '+ 과제')),
+      : emptyPic('📤', '위 [+ 과제]로 첫 과제를 내요'),
     a ? h('div', { class: 'card soft small' }, qrPanel(false, PageAct)) : null);
   const main = h('div', { class: 'open-main' });
   root.append(sideFold(h('div', { class: 'open-layout' }, side, main)));
   HWState.unsub && HWState.unsub();
   if (!a) { main.append(h('div', { class: 'empty' }, '왼쪽에서 과제를 만들면 과제마다 전용 QR이 생겨요. 학생은 QR로 들어와 번호·이름·비밀번호로 확인한 뒤 글·사진·영상·발표 자료를 올려 제출해요.')); return; }
   const room = S.room();
-  const count = h('div', { class: 'resp-count' }), tbl = h('div', { class: 'table-wrap' });
-  const filter = Store.get('local:hwFilter', 'all');
-  const fbtn = (k, lab) => h('button', { class: 'btn sm' + (filter === k ? ' on' : ''), onclick: () => { Store.set('local:hwFilter', k); renderHW(); } }, lab);
-  let latest = [];
-  main.append(h('div', { class: 'open-stage' }, actStatus(PageAct),
-    h('div', { class: 'row gap wrap' }, h('h2', { class: 'grow' }, '📤 ', a.title),
+  // 🖥 공유 화면: 과제 안내만 크게 (학생 이름·제출 현황 목록은 🔒 제출 관리에서만)
+  const count = h('div', { class: 'hw-count' });
+  main.append(h('div', { class: 'open-stage hw-stage' }, actStatus(PageAct),
+    h('div', { class: 'row gap wrap' }, h('span', { class: 'grow' }),
       h('button', { class: 'btn', onclick: () => studentPreview('hw', a) }, '📱 응답지 미리보기'),
-      h('button', { class: 'btn', onclick: () => editHW(a) }, '✎ 과제 고치기'),
-      h('button', { class: 'btn', onclick: () => hwExcel(a, latest) }, '⬇️ 엑셀')),
-    h('div', { class: 'row gap wrap small' }, h('span', { class: 'tag' }, '⏰ 마감 ', HW.dueText(a.due)), a.max ? h('span', { class: 'tag' }, `만점 ${a.max}점`) : null, a.desc ? h('span', { class: 'muted clamp1' }, a.desc) : null),
-    h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }), fbtn('all', '전체'), fbtn('sub', '제출'), fbtn('none', '미제출'), fbtn('todo', '평가 전'), fbtn('late', '늦음')),
-    tbl));
+      h('button', { class: 'btn', onclick: () => editHW(a) }, '✎ 과제 고치기')),
+    h('div', { class: 'hw-show-card' },
+      h('div', { class: 'hw-kicker' }, '📤 과제'),
+      h('h1', { class: 'hw-title' }, a.title),
+      h('div', { class: 'row gap wrap hw-meta' }, h('span', { class: 'tag' }, '⏰ 마감 ', HW.dueText(a.due)), a.max ? h('span', { class: 'tag' }, `만점 ${a.max}점`) : null),
+      a.desc ? h('div', { class: 'hw-desc' }, a.desc) : h('div', { class: 'hw-desc muted' }, '안내 글이 없어요. [✎ 과제 고치기]에서 써 넣을 수 있어요.'),
+      h('div', { class: 'hw-how' }, '📱 QR을 찍고 번호·이름·비밀번호로 들어와 글·사진·영상·파일을 올려요'),
+      count)));
+  const draw = list => { const n = new Set(latestBy(list, r => String(r.num)).map(r => String(r.num))).size; const tot = S.students(cls).length; count.replaceChildren(h('b', null, n), ` / ${tot || '?'}명 제출`); };
+  if (room) { HWState.unsub = Live.watchResps(room, a.id, draw); View.cleanup.push(() => HWState.unsub && HWState.unsub()); } else draw([]);
+}
+/* 🔒 제출 관리: 교사만 (비밀번호 뒤) — 학생별 제출·점수·코멘트 */
+function hwManage(a, room, cls, host) {
+  const st = host || h('div', { class: 'present tool-present light hw-manage' });
+  const count = h('div', { class: 'resp-count' }), tbl = h('div', { class: 'table-wrap' }), fbar = h('div', { class: 'row gap wrap' });
+  let latest = [], last = [], unsub = null;
+  const close = () => { unsub && unsub(); st.remove(); document.removeEventListener('keydown', key); };
+  const key = e => { if (e.key === 'Escape' && !document.querySelector('.modal-back,.modal')) close(); };
   const draw = list => {
+    last = list;
+    const filter = Store.get('local:hwFilter', 'all');
+    fbar.replaceChildren(...[['all', '전체'], ['sub', '제출'], ['none', '미제출'], ['todo', '평가 전'], ['late', '늦음']].map(([k, lab]) => h('button', { class: 'btn sm' + (filter === k ? ' on' : ''), onclick: () => { Store.set('local:hwFilter', k); draw(last); } }, lab)));
     latest = latestBy(list, r => String(r.num)).sort((x, y) => (+x.num || 0) - (+y.num || 0));
     const byNum = new Map(latest.map(r => [String(r.num), r]));
     respondentBar(latest, count);
@@ -207,14 +221,87 @@ function renderHW() {
     const rows = studs.map(s => ({ s, r: byNum.get(String(s.num)) })).filter(({ r }) => filter === 'all' || (filter === 'sub' && r) || (filter === 'none' && !r) || (filter === 'todo' && r && !r.checked) || (filter === 'late' && r && r.late));
     tbl.replaceChildren(h('table', { class: 'grid-tbl hw-tbl' },
       h('thead', null, h('tr', null, h('th', null, '번호'), h('th', null, '이름'), h('th', null, '제출'), h('th', null, '내용'), h('th', null, '점수'), h('th', null, '코멘트'))),
-      h('tbody', null, rows.map(({ s, r }) => h('tr', { class: r ? 'hw-row' + (r.checked ? ' done' : '') : 'hw-none', onclick: () => r && hwDetail(a, r, room, () => draw(list)) },
+      h('tbody', null, rows.map(({ s, r }) => h('tr', { class: r ? 'hw-row' + (r.checked ? ' done' : '') : 'hw-none', onclick: () => r && hwDetail(a, r, room, () => draw(last)) },
         h('td', null, s.num), h('td', null, s.name),
         h('td', null, r ? [h('span', { class: 'tag ok' }, '✔ ', new Date(r.ts).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' })), r.late ? h('span', { class: 'tag bad' }, '늦음') : null] : h('span', { class: 'muted' }, '미제출')),
         h('td', { class: 'hw-sum' }, r ? [r.text ? h('span', null, '📝 ', r.text.slice(0, 30), r.text.length > 30 ? '…' : '') : null, (r.files || []).length ? h('span', { class: 'tag' }, `📎 ${(r.files || []).length}`) : null, (r.links || []).length ? h('span', { class: 'tag' }, `🔗 ${r.links.length}`) : null] : ''),
         h('td', null, r && r.score !== undefined && r.score !== '' ? h('b', null, r.score, a.max ? h('small', { class: 'muted' }, `/${a.max}`) : null) : r?.grade ? h('b', null, r.grade) : ''),
         h('td', { class: 'small' }, r?.comment ? r.comment.slice(0, 40) + (r.comment.length > 40 ? '…' : '') : ''))))));
   };
-  if (room) { HWState.unsub = Live.watchResps(room, a.id, draw); View.cleanup.push(() => HWState.unsub && HWState.unsub()); } else draw([]);
+  if (host) {
+    host.append(h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }), fbar, h('button', { class: 'btn sm', onclick: () => hwExcel(a, latest) }, '⬇ 엑셀')), tbl);
+    if (room) { unsub = Live.watchResps(room, a.id, draw); View.cleanup.push(() => unsub && unsub()); } else draw([]);
+    return;
+  }
+  st.append(h('div', { class: 'pres-top' }, h('b', null, '🔒 제출 관리 · ', a.title), h('span', { class: 'grow' }),
+      h('button', { class: 'btn', onclick: () => hwExcel(a, latest) }, '⬇ 엑셀'), h('button', { class: 'btn', onclick: close }, '✕ 닫기')),
+    h('div', { class: 'hw-manage-body' }, h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }), fbar), tbl));
+  document.body.append(st); document.addEventListener('keydown', key);
+  if (room) unsub = Live.watchResps(room, a.id, draw); else draw([]);
+}
+/* 📥 제출 관리 페이지 (오른쪽 아래 관리 메뉴 · 비밀번호): 배움열기 · 배움공유 · 배움마무리 · 과제 */
+const SUB_TABS = [['open', '💡 배움열기'], ['share', '🤝 배움공유'], ['close', '🌱 배움마무리'], ['hw', '📤 과제 제출']];
+const SubState = { act: {} };
+function subText(r) {
+  if (r.kind === 'close') return [r.summary, r.appeal ? '어필: ' + r.appeal : '', (r.comps || []).length ? '역량: ' + r.comps.join(', ') : ''].filter(Boolean).join('\n');
+  if (r.kind === 'share') return [r.title, r.content].filter(Boolean).join('\n');
+  return typeof ansText === 'function' ? ansText(r.answer) : String(r.answer ?? '');
+}
+function renderSubmit() {
+  const root = $('#view'); root.replaceChildren();
+  const cls = S.cls(); const tab = Store.get('local:subTab', 'open');
+  const page = h('div', { class: 'full-panel' }, h('h2', null, '📥 제출 관리'),
+    h('div', { class: 'tabs' }, SUB_TABS.map(([k, l]) => h('button', { class: 'tab' + (tab === k ? ' on' : ''), onclick: () => { Store.set('local:subTab', k); renderSubmit(); } }, l))));
+  root.append(page);
+  if (!cls) { page.append(h('p', { class: 'muted' }, '설정에서 학급을 먼저 만드세요.')); return; }
+  const body = h('div', { class: 'stack' }); page.append(body);
+  if (tab === 'hw') {
+    const l = HW.list();
+    if (!l.length) { body.append(h('p', { class: 'muted' }, '아직 낸 과제가 없어요. 왼쪽 [과제]에서 과제를 만들어 주세요.')); return; }
+    if (!HWState.id || !l.find(x => x.id === HWState.id)) HWState.id = l[0].id;
+    const a = l.find(x => x.id === HWState.id);
+    body.append(h('div', { class: 'chips' }, l.map(x => h('button', { class: 'chip' + (x.id === a.id ? ' on' : ''), onclick: () => { HWState.id = x.id; renderSubmit(); } }, x.title))),
+      h('div', { class: 'row gap wrap small muted' }, h('span', { class: 'tag' }, '⏰ 마감 ', HW.dueText(a.due)), a.max ? h('span', { class: 'tag' }, `만점 ${a.max}점`) : null, '줄을 누르면 제출물을 보고 점수·코멘트를 남길 수 있어요.'));
+    const box = h('div', { class: 'stack' }); body.append(box);
+    hwManage(a, S.room(), cls, box);
+    return;
+  }
+  const room = S.room();
+  if (!room) { body.append(h('p', { class: 'muted' }, '학생 응답 서버가 연결되어야 볼 수 있어요.')); return; }
+  body.append(h('p', { class: 'muted' }, '불러오는 중…'));
+  Live.allResps(room).then(all => {
+    const list = all.filter(r => r.kind === tab);
+    // 활동(질문)별로 묶기, 최근 것부터
+    const groups = new Map();
+    list.forEach(r => { const g = groups.get(r.act) || { id: r.act, q: r.q || '', date: r.date || '', ts: 0, rs: [] }; g.rs.push(r); g.ts = Math.max(g.ts, r.ts || 0); if (!g.q && r.q) g.q = r.q; groups.set(r.act, g); });
+    const gs = [...groups.values()].sort((a, b) => b.ts - a.ts);
+    body.replaceChildren();
+    if (!gs.length) { body.append(h('p', { class: 'muted' }, '아직 받은 응답이 없어요.')); return; }
+    const cur = gs.find(g => g.id === SubState.act[tab]) || gs[0]; SubState.act[tab] = cur.id;
+    const latest = latestBy(cur.rs, r => String(r.num)).sort((x, y) => (+x.num || 0) - (+y.num || 0));
+    const byNum = new Map(latest.map(r => [String(r.num), r]));
+    const studs = S.students(cls);
+    const filter = Store.get('local:subFilter', 'all');
+    const rows = studs.map(st => ({ st, r: byNum.get(String(st.num)) })).filter(({ r }) => filter === 'all' || (filter === 'sub' && r) || (filter === 'none' && !r));
+    const count = h('div', { class: 'resp-count' }); respondentBar(latest, count);
+    const excel = () => {
+      const ws = XLSX.utils.json_to_sheet(studs.map(st => { const r = byNum.get(String(st.num)); return { 번호: +st.num || st.num, 이름: st.name, 응답: r ? subText(r) : '', 시간: r ? new Date(r.ts).toLocaleString('ko-KR') : '미응답' }; }));
+      const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, '응답'); saveWorkbook(wb, `${cls.name}_${(SUB_TABS.find(t => t[0] === tab) || [])[1] || ''}_${cur.date || ''}.xlsx`.replace(/[^\w가-힣.()_ -]/g, ''));
+    };
+    body.append(
+      h('div', { class: 'sub-acts' }, gs.map(g => h('button', { class: 'sub-act' + (g.id === cur.id ? ' on' : ''), onclick: () => { SubState.act[tab] = g.id; renderSubmit(); } },
+        h('small', null, g.date || ''), h('span', { class: 'clamp2' }, g.q || '(제목 없음)'), h('em', null, `${new Set(g.rs.map(r => String(r.num))).size}명`)))),
+      h('div', { class: 'row gap wrap' }, count, h('span', { class: 'grow' }),
+        [['all', '전체'], ['sub', '응답'], ['none', '미응답']].map(([k, l]) => h('button', { class: 'btn sm' + (filter === k ? ' on' : ''), onclick: () => { Store.set('local:subFilter', k); renderSubmit(); } }, l)),
+        h('button', { class: 'btn sm', onclick: excel }, '⬇ 엑셀'), h('button', { class: 'btn sm', onclick: () => renderSubmit() }, '🔄 새로고침')),
+      h('div', { class: 'table-wrap' }, h('table', { class: 'grid-tbl sub-tbl' },
+        h('thead', null, h('tr', null, h('th', null, '번호'), h('th', null, '이름'), h('th', null, '응답'), h('th', null, '시간'), h('th', null, ''))),
+        h('tbody', null, rows.map(({ st, r }) => h('tr', { class: r ? '' : 'hw-none' },
+          h('td', null, st.num), h('td', null, st.name),
+          h('td', { class: 'sub-txt' }, r ? subText(r) : h('span', { class: 'muted' }, '미응답')),
+          h('td', { class: 'small muted' }, r ? new Date(r.ts).toLocaleString('ko-KR', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }) : ''),
+          h('td', null, r ? h('button', { class: 'x', title: '이 응답 지우기', onclick: async () => { if (await confirmBox(`${st.num}번 응답을 지울까요?`, '지우기', true)) { for (const x of cur.rs.filter(x => String(x.num) === String(st.num))) await Live.delResp(room, x.id); renderSubmit(); } } }, '✕') : null)))))));
+  }).catch(err => { body.replaceChildren(h('p', { class: 'muted' }, '응답을 불러오지 못했어요: ' + (err?.message || err))); });
 }
 /* 제출물 자세히 보기 + 평가·코멘트 */
 function hwDetail(a, r, room, redraw) {
@@ -230,9 +317,9 @@ function hwDetail(a, r, room, redraw) {
       else if (/pdf/.test(f.type)) show.replaceChildren(h('iframe', { src: url }));
       else show.replaceChildren(h('p', { class: 'small muted' }, '이 파일은 내려받아 열어 주세요.'));
       box.querySelector('.hw-dl')?.remove();
-      box.querySelector('.row').append(h('a', { class: 'btn sm hw-dl', href: url, download: `${r.num}_${r.name}_${f.name}` }, '⬇️ 내려받기'));
+      box.querySelector('.row').append(h('a', { class: 'btn sm hw-dl', href: url, download: `${r.num}_${r.name}_${f.name}` }, '⬇ 내려받기'));
       open.remove();
-    }) }, /^(image|video|audio)\//.test(f.type) || /pdf/.test(f.type) ? '👀 열기' : '⬇️ 가져오기');
+    }) }, /^(image|video|audio)\//.test(f.type) || /pdf/.test(f.type) ? '👀 열기' : '⬇ 가져오기');
     box.querySelector('.row').append(open); box.append(show); files.append(box);
   });
   const score = h('input', { type: 'number', class: 'w60', value: r.score ?? '', placeholder: '점수' });

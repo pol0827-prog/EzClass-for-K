@@ -148,7 +148,13 @@ const OrderPick = {
 };
 
 /* ---------- 👥 모둠 짜기 ---------- */
-const GROUP_COLORS = ['#2f5d62', '#b8432f', '#5b7a3a', '#c8803a', '#6b5b8a', '#3d7ea6', '#8a6d3b', '#4a443b', '#a14d6b', '#6e8b3d', '#4f5d8a', '#2d7a6e'];
+const GROUP_COLORS = ['#24365c', '#2f6b3f', '#a8486c', '#8a6d3b', '#3d5a8a', '#1f5c4a', '#6b5b8a', '#4a443b', '#2c4a6e', '#4f7a3a', '#7a4a32', '#2d6e7a'];
+/* 학번: 학급 이름(3학년 2반, 3-2)에서 학년·반을 읽어 학년+반2자리+번호2자리 (30201). 못 읽으면 번호만 */
+function hakbun(cls, num) {
+  const n = String(num || '').padStart(2, '0');
+  const m = String(cls?.name || '').match(/(\d)\s*학년\s*(\d{1,2})\s*반/) || String(cls?.name || '').match(/(\d)\s*[-–]\s*(\d{1,2})/);
+  return m ? m[1] + m[2].padStart(2, '0') + n : n + '번';
+}
 const Groups = {
   get() { const c = S.cls(); return c ? Store.get('groups:' + c.id, null) : null; },
   save(g) { const c = S.cls(); if (c) Store.set('groups:' + c.id, g); },
@@ -171,7 +177,7 @@ const Groups = {
           if (!sel) { sel = { n, i }; draw(); return; }
           if (sel.n !== n) { const a = g.groups[sel.i], b = g.groups[i]; a[a.indexOf(sel.n)] = n; b[b.indexOf(n)] = sel.n; this.save(g); }
           sel = null; draw();
-        } }, nameOf(n))))));
+        } }, h('small', { class: 'grp-hb' }, hakbun(S.cls(), n)), ' ', nameOf(n))))));
     };
     const shuffle = () => {
       const n = Math.max(2, Math.min(12, +nIn.value || 4));
@@ -218,7 +224,7 @@ const SUBJECTS_2022 = [
   ['진로 선택', ['주제 탐구 독서', '문학과 영상', '직무 의사소통']],
   ['융합 선택', ['독서 토론과 글쓰기', '매체 의사소통', '언어생활 탐구']]
 ];
-const SPINE = ['#d0628a', '#e48fac', '#5aa4c8', '#86c1dc', '#93c062', '#7a4a32', '#c78aa3', '#4f8fae', '#a0694a', '#7fae55', '#b65f80'];
+const SPINE = ['#d0628a', '#e48fac', '#5aa4c8', '#86c1dc', '#3d7a46', '#7a4a32', '#c78aa3', '#4f8fae', '#a0694a', '#3d7a46', '#b65f80'];
 function subjectShelf(cur, onPick) {
   let k = 0;
   return h('div', { class: 'shelf' }, SUBJECTS_2022.map(([g, list]) => h('div', { class: 'shelf-grp' },
@@ -265,11 +271,12 @@ function welcome() {
   document.body.append(st); draw();
 }
 
-/* ---------- 🔒 비밀번호 잠금 (관찰 메모 · 성적 · 학생부 엑셀 · 백업) ---------- */
+/* ---------- 🔒 비밀번호 잠금 (관찰 메모 · 성적 · 학생부 엑셀 · 백업 · 과제 제출 관리) ---------- */
 const Lock = {
   open: false,
   async hash(pin) { const b = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('hwajak-pin:' + pin)); return Array.from(new Uint8Array(b), x => x.toString(16).padStart(2, '0')).join(''); },
-  async check(pin) { const saved = Store.get('pinhash', null); return saved ? (await this.hash(pin)) === saved : pin === '1234'; },
+  DEF: '8984e16ede5f7f91fe531c8104fb542e781f75507c05fc262131fc24180d461d', // 처음 비밀번호(해시만 둠)
+  async check(pin) { const saved = Store.get('pinhash', null); return (await this.hash(pin)) === (saved || this.DEF); },
   ask(title = '🔒 비밀번호를 입력해 주세요') {
     return new Promise(res => {
       // 화면에 숫자판을 띄우지 않음: 키보드로만 입력 (프로젝터에 노출 방지)

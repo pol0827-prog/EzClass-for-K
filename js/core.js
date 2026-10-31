@@ -744,14 +744,14 @@ function inkToolbar(ink, { colors = PEN_COLORS, onToggle, extra = [], toggle = t
   const bar = h('div', { class: 'inkbar' });
   const btn = (label, title, fn, cls = '') => h('button', { class: 'ib ' + cls, title, onclick: fn }, label);
   const setTool = t => { ink.tool = t; if (toggle && !ink.enabled) { ink.setEnabled(true); onToggle && onToggle(true); } refresh(); };
-  const tg = toggle ? btn('✍️ 필기', '필기 켜기/끄기 (끄면 글자 클릭 가능)', () => { ink.setEnabled(!ink.enabled); onToggle && onToggle(ink.enabled); refresh(); }, 'toggle') : null;
-  const tools = [['pen', '🖊', '펜'], ['hl', '🖍', '형광펜'], ['eraser', '🧽', '지우개 — 문지른 곳만 지워요 (글자·그림도)'], ['strokeEraser', '✂️', '획 지우개 — 닿은 획·글자·그림을 통째로 지워요']].map(([t, i, n]) => { const b = btn(i, n, () => setTool(t)); b.dataset.tool = t; return b; });
+  const tg = toggle ? btn('✍ 필기', '필기 켜기/끄기 (끄면 글자 클릭 가능)', () => { ink.setEnabled(!ink.enabled); onToggle && onToggle(ink.enabled); refresh(); }, 'toggle') : null;
+  const tools = [['pen', '🖊', '펜'], ['hl', '🖍', '형광펜'], ['eraser', '🧽', '지우개 — 문지른 곳만 지워요 (글자·그림도)'], ['strokeEraser', '✂', '획 지우개 — 닿은 획·글자·그림을 통째로 지워요']].map(([t, i, n]) => { const b = btn(i, n, () => setTool(t)); b.dataset.tool = t; return b; });
   const sw = colors.map(c => { const b = h('button', { class: 'sw', title: c, style: { background: c }, onclick: () => { ink.color = c; if (/eraser/i.test(ink.tool)) ink.tool = 'pen'; setTool(ink.tool); } }); b.dataset.c = c; return b; });
   const size = h('input', { type: 'range', min: 1, max: 16, value: ink.size, title: '굵기', class: 'sz', oninput: e => { ink.size = +e.target.value; } });
   /* 지우개 크기 5단계 */
   const ERS = [['아주 작게', 8], ['작게', 12], ['보통', 17], ['크게', 23], ['아주 크게', 30]];
   const esz = h('span', { class: 'er-sizes' }, ERS.map(([n, px], i) => { const b = h('button', { class: 'er-sz', title: `지우개 ${n}`, onclick: () => { ink.eraserSize = i; Store.set('local:eraserSize', i); if (!/eraser/i.test(ink.tool)) ink.tool = 'eraser'; setTool(ink.tool); } }, h('i', { style: { width: px + 'px', height: px + 'px' } })); b.dataset.i = i; return b; }));
-  const RULERS = [['line', '📏', '곧은 줄'], ['wave', '〰️', '물결 밑줄'], ['rect', '▭', '네모 테두리'], ['tri', '△', '세모 테두리'], ['ellipse', '◯', '동그라미 테두리']];
+  const RULERS = [['line', '📏', '곧은 줄'], ['wave', '〰', '물결 밑줄'], ['rect', '▭', '네모 테두리'], ['tri', '△', '세모 테두리'], ['ellipse', '◯', '동그라미 테두리']];
   let lastRuler = Store.get('local:ruler', 'line');
   const rIcon = () => (RULERS.find(r => r[0] === lastRuler) || RULERS[0])[1];
   const rBtn = btn(rIcon(), '자 — 곧은 줄·물결 밑줄·네모·세모·동그라미 테두리 (한 번 더 누르면 모양 고르기)', () => { if (INK_SHAPES.includes(ink.tool) && ink.enabled) rMenu.classList.toggle('show'); else setTool(lastRuler); });
@@ -759,8 +759,8 @@ function inkToolbar(ink, { colors = PEN_COLORS, onToggle, extra = [], toggle = t
   const ruler = h('span', { class: 'ruler-wrap' }, rBtn, rMenu);
   tools.splice(2, 0, ruler);
   // 필기 도구 접기 (화면을 깔끔하게 — 기억함)
-  const foldB = btn('', '필기 도구 접기/펴기', () => { const v = !bar.classList.contains('folded'); bar.classList.toggle('folded', v); Store.set('local:inkFold', v); foldB.textContent = v ? '🖊 펴기' : '◂ 접기'; }, 'ink-fold');
-  bar.classList.toggle('folded', !!Store.get('local:inkFold', false)); foldB.textContent = bar.classList.contains('folded') ? '🖊 펴기' : '◂ 접기';
+  const foldB = btn('', '필기 도구 접기/펴기', () => { const v = !bar.classList.contains('folded'); bar.classList.toggle('folded', v); Store.set('local:inkFold', v); foldB.textContent = v ? '▸' : '◂'; }, 'ink-fold');
+  bar.classList.toggle('folded', !!Store.get('local:inkFold', false)); foldB.textContent = bar.classList.contains('folded') ? '▸' : '◂';
   bar.append(foldB);
   bar.append(...[tg, h('span', { class: 'sep' }), ...tools, esz, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
     btn('↶', '되돌리기', () => ink.undo()), btn('↷', '다시', () => ink.redo()),
@@ -831,7 +831,7 @@ const Video = {
 function goView(v) { if (location.hash === '#' + v) emit('rerender'); else location.hash = '#' + v; }
 
 /* ---------- 수채화 ---------- */
-const WC = { pink: '#f2bfd0', pink2: '#e48fac', rose: '#d0628a', sky: '#bfe0ef', sky2: '#86c1dc', green: '#c5e09a', green2: '#93c062', bark: '#7a4a32', bark2: '#a0694a', blue: '#5aa4c8', paper: '#fcf9f3', ink: '#43332b' };
+const WC = { pink: '#f2bfd0', pink2: '#e48fac', rose: '#d0628a', sky: '#bfe0ef', sky2: '#86c1dc', green: '#c5e09a', green2: '#3d7a46', bark: '#7a4a32', bark2: '#a0694a', blue: '#5aa4c8', paper: '#fcf9f3', ink: '#43332b' };
 function washURL(c1, c2, seed = 3, shape = 'blob') {
   const e = shape === 'band'
     ? `<rect x='-20' y='60' width='440' height='180' fill='${c1}' opacity='.7'/><rect x='40' y='110' width='300' height='90' fill='${c2}' opacity='.45'/>`
