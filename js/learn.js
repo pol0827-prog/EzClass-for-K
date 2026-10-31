@@ -118,6 +118,7 @@ function renderLearn() {
       h('span', { class: 'sep' }),
       h('button', { class: 'ib', title: '필기 저장·불러오기', onclick: () => inkSnapshots(ch, pv) }, '💾'),
       h('button', { class: 'ib', title: '링크·영상 삽입', onclick: () => Video.manager('ch:' + ch.id, ch.title) }, '🎬'),
+      LearnState.mode === 'text' ? h('button', { class: 'ib evid-btn', title: '학생 휴대폰으로 근거 문장 고르기 보내기 → 지문 위에 히트맵', onclick: () => evidSend(ch, pv) }, '🔎 근거 찾기') : null,
       h('span', { class: 'sep' }),
       h('button', { class: 'ib' + (LearnState.mode === 'text' ? ' on' : ''), title: '텍스트 화면', onclick: () => { LearnState.mode = 'text'; renderLearn(); } }, '텍스트'),
       h('button', { class: 'ib' + (LearnState.mode === 'orig' ? ' on' : ''), title: '원본 PDF 쪽 화면', onclick: () => { LearnState.mode = 'orig'; renderLearn(); } }, '원본'),

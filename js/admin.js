@@ -600,7 +600,7 @@ ${ms.map(m => `- ${m.date} [${m.tags.join(',')}] ${m.text}`).join('\n') || '(없
 [교사가 준 칭찬 도장]
 ${stamps(cls.id).filter(x => x.num === String(s.num)).map(x => `- ${x.date} [${x.type}] ${x.reason || ''}`).join('\n') || '(없음)'}
 [학생 제출]
-${rs.map(r => `- ${r.date} ${r.kind === 'close' ? `배움일기: ${r.summary} / 어필: ${r.appeal} / 역량: ${(r.comps || []).join(',')}` : `질문: ${r.q} / 응답: ${ansText(r.answer)}`}`).join('\n') || '(없음)'}`, { json: false, maxTokens: 2000 });
+${rs.map(r => `- ${r.date} ${r.kind === 'close' ? `배움일기: ${r.summary} / 어필: ${r.appeal} / 역량: ${(r.comps || []).join(',')}` : `질문: ${r.q} / 응답: ${ansText(r.answer)}`}`).join('\n') || '(없음)'}`, { json: false, maxTokens: 2000, strong: true });
   const t = h('textarea', { class: 'full', rows: 10 }); t.value = text.trim();
   modal({ title: `✨ ${s.num} ${s.name} 세특 초안 (검토 후 사용)`, wide: true, body: h('div', null, t, h('p', { class: 'small muted' }, 'AI 초안입니다. 사실 여부와 표현을 반드시 확인하고 고쳐 쓰세요.')),
     actions: [{ label: '복사', onClick: () => { navigator.clipboard?.writeText(t.value).then(() => toast('복사했습니다')); return false; } }, { label: '메모로 저장', primary: true, onClick: () => { const arr = memos(cls.id); arr.unshift({ id: uid(), num: String(s.num), date: todayStr(), tags: ['세특 초안'], text: t.value, ts: Date.now() }); Store.set('memos:' + cls.id, arr); renderMemo(); } }] });
@@ -810,10 +810,10 @@ function attLog(cls, studs, att) {
 function renderSettings() {
   const root = $('#view'); root.replaceChildren();
   const tab = Store.get('local:setTab', 'class');
-  const T = [['brand', '🏷 과목·이름'], ['class', '👥 학급·명렬표'], ...(FB.fileConfig() ? [] : [['server', '📡 학생 응답 서버']]), ['std', '📚 성취기준'], ['promise', '🤝 수업 약속'], ['bell', '⏰ 시정표'], ['backup', '💾 백업'], ['guide', '📖 사용 안내서']];
+  const T = [['brand', '🏷 과목·이름'], ['class', '👥 학급·명렬표'], ...(FB.fileConfig() ? [] : [['server', '📡 학생 응답 서버']]), ['std', '📚 성취기준'], ['promise', '🤝 수업 약속'], ['bell', '⏰ 시정표'], ['check', '🔧 교실 점검'], ['privacy', '🧹 개인정보·학기말'], ...(FB.ready && FB.isAdmin && FB.isAdmin() ? [['teachers', '👩‍🏫 함께 쓰는 선생님']] : []), ['backup', '💾 백업'], ['guide', '📖 사용 안내서']];
   const body = h('div', { class: 'set-body' });
   root.append(h('div', { class: 'full-panel' }, h('h2', null, '⚙️ 설정'), h('div', { class: 'tabs' }, T.map(([k, l]) => h('button', { class: 'tab' + (tab === k ? ' on' : ''), onclick: () => { Store.set('local:setTab', k); renderSettings(); } }, l))), body));
-  ({ brand: setBrand, class: setClass, server: setServer, std: setStandards, promise: setPromise, bell: setBell, backup: setBackup, guide: setGuide })[T.some(t => t[0] === tab) ? tab : 'class'](body);
+  ({ brand: setBrand, class: setClass, server: setServer, std: setStandards, check: setCheck, privacy: setPrivacy, teachers: setTeachers, promise: setPromise, bell: setBell, backup: setBackup, guide: setGuide })[T.some(t => t[0] === tab) ? tab : 'class'](body);
 }
 function setBell(body) {
   const b = Bell.get(), list = b.periods.map(p => ({ ...p }));
@@ -926,7 +926,7 @@ function setClass(body) {
       h('td', null, (() => { const x = h('select', { onchange: e => { s.status = e.target.value; save(); draw(); } }, STATUS.map(v => h('option', null, v))); x.value = s.status || '재적'; return x; })()),
       h('td', null, h('input', { value: s.note || '', placeholder: '예: 5/2 전입', onchange: e => { s.note = e.target.value; save(); } })),
       h('td', null, (() => { const td = h('span', { class: 'pin-st muted' }, pinSt ? '…' : '—');
-        if (pinSt) ridOf(s).then(r => { const st = pinSt[r] || {}; td.replaceChildren(st.set ? h('span', { class: 'ok-t' }, '✅ ', h('b', { class: 'mono' }, showPin ? (st.pin || '(모름)') : '••••')) : h('span', { class: 'muted' }, '⏳ 아직'), st.set ? h('button', { class: 'btn sm ghost', title: '비밀번호 초기화 (학생이 다시 정함)', onclick: () => resetPins([s], `${s.num}번 ${s.name}`) }, '🔄') : null); });
+        if (pinSt) ridOf(s).then(r => { const st = pinSt[r] || {}; td.replaceChildren(st.set ? h('span', { class: 'ok-t' }, '✅ ', '정함') : h('span', { class: 'muted' }, '⏳ 아직'), st.set ? h('button', { class: 'btn sm ghost', title: '비밀번호 초기화 (학생이 다시 정함)', onclick: () => resetPins([s], `${s.num}번 ${s.name}`) }, '🔄') : null); });
         return td; })()),
       h('td', null, h('button', { class: 'x', onclick: async () => { if (await confirmBox(`${s.name} 학생을 명렬표에서 지울까요? (전출 등은 학적 상태로 표시하는 것을 권장)`, '지우기', true)) { cur.students = cur.students.filter(x => x !== s); save(); draw(); } } }, '✕')))))));
   const addRows = rows => { let n = 0; for (const [num, name] of rows) { if (!num || !name) continue; const ex = cur.students.find(s => String(s.num) === String(num)); if (ex) ex.name = name; else cur.students.push({ num: String(num), name, status: '재적' }); n++; } save(); draw(); toast(`${n}명 반영`); };
@@ -935,16 +935,9 @@ function setClass(body) {
       h('div', { class: 'row gap' }, h('input', { class: 'full', value: cur.name, onchange: e => { cur.name = e.target.value; save(); } }),
         h('button', { class: 'btn danger sm', onclick: async () => { if (await confirmBox(`'${cur.name}' 학급을 삭제할까요? (출결·메모·성적 기록도 화면에서 사라집니다)`, '삭제', true)) { S.saveClasses(S.classes().filter(c => c.id !== cur.id)); S.setUI({ classId: S.classes()[0]?.id || '' }); renderSettings(); } } }, '학급 삭제')),
       h('div', { class: 'card stack' }, h('b', null, '🔑 학생 확인 (반·번호·이름 + 학생이 정한 비밀번호 4자리)'),
-        h('p', { class: 'small muted' }, '학생은 처음 QR로 들어올 때 반·번호·이름을 넣고 자기 비밀번호 4자리를 직접 정해요. 다음부터는 그 비밀번호로 들어오고, 학생 화면의 👤에서 바꿀 수 있어요. 정하거나 바꾼 비밀번호는 여기 저장돼서 선생님이 볼 수 있어요(🔒). 잊은 학생에게 알려 주거나, 🔄로 초기화하면 다음에 들어올 때 새로 정해요. 명렬표에 없는 학생은 들어올 수 없어요.'),
+        h('p', { class: 'small muted' }, '학생은 처음 QR로 들어올 때 반·번호·이름을 넣고 자기 비밀번호 4자리를 직접 정해요. 비밀번호는 섞은 값으로만 저장돼서 선생님도 볼 수 없어요. 학생이 잊어버리면 🔄 초기화를 누르면, 다음에 들어올 때 새로 정해요.'),
         h('div', { class: 'row gap wrap' },
-          h('button', { class: 'btn sm', onclick: async () => { if (showPin) { showPin = false; draw(); return; } if (await Lock.ask('🔒 학생 비밀번호 보기 — 비밀번호')) { showPin = true; await loadSt(); } } }, '👁 비밀번호 보기·숨기기'),
           h('button', { class: 'btn sm', onclick: () => loadSt() }, '↻ 새로 보기'),
-          h('button', { class: 'btn sm', onclick: () => Lock.guard(async () => {
-            await loadSt(); const rows = [];
-            for (const st of S.students(cur)) { const x = (pinSt || {})[await ridOf(st)] || {}; rows.push({ 번호: +st.num || st.num, 이름: st.name, 비밀번호: x.set ? (x.pin || '(모름)') : '아직 안 정함' }); }
-            const wb = XLSX.utils.book_new(), ws = XLSX.utils.json_to_sheet(rows); ws['!cols'] = [{ wch: 6 }, { wch: 10 }, { wch: 14 }]; XLSX.utils.book_append_sheet(wb, ws, '학생 비밀번호');
-            XLSX.writeFile(wb, `${cur.name}_학생비밀번호_${todayStr()}.xlsx`);
-          }, '🔒 학생 비밀번호 명단 — 비밀번호') }, '⬇️ 비밀번호 명단'),
           h('button', { class: 'btn sm', onclick: () => Lock.guard(() => resetPins(S.students(cur), `${cur.name} 학생 전체`), '🔒 비밀번호 전체 초기화 — 비밀번호') }, '🔄 전체 초기화'),
           h('button', { class: 'btn sm', onclick: () => keySync(true) }, '☁️ 서버에 다시 반영')),
         keyState),

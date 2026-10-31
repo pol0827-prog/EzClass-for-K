@@ -12,6 +12,7 @@ function startStudent(room, pv = null) {
   const saveAuth = (r, a) => { const all = auths(); if (a) all[r] = a; else delete all[r]; localStorage.setItem(AUTH, JSON.stringify(all)); };
   let me = pv ? { num: '7', name: '미리보기', cls: S.cls()?.name || '', k: 'preview' } : (auths()[room] || {});
   const head = h('header', { class: 'stu-head' }, h('b', { class: 'subj' }, '수업'), h('span', { class: 'cls' }), h('span', { class: 'grow' }),
+    h('button', { class: 'btn sm', title: '내 배움 기록', onclick: () => { if (pv) return toast('미리보기에서는 쓸 수 없어요', 'warn'); if (me.k) myLog(); } }, '📒'),
     h('button', { class: 'btn sm', title: '내 정보·비밀번호 바꾸기', onclick: () => { if (pv) return toast('미리보기에서는 쓸 수 없어요', 'warn'); if (me.k) meMenu(); } }, '👤'));
   const main = h('main', { class: 'stu-main' });
   app.append(head, main, h('footer', { class: 'stu-ver' }, '버전 ' + (typeof APP_VER !== 'undefined' ? APP_VER : '')));
@@ -68,7 +69,7 @@ function startStudent(room, pv = null) {
       b.onclick = go; p2.addEventListener('keydown', e => { if (e.key === 'Enter') go(); });
       main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, `🔑 ${ro.num}번 ${ro.name}, 반가워요!`),
         h('p', null, '처음 들어왔어요. 앞으로 쓸 ', h('b', null, '나만의 비밀번호 4자리'), '를 정해 주세요.'),
-        h('p', { class: 'small muted' }, '다른 친구가 내 이름으로 들어오지 못하게 막아 줘요. 정한 비밀번호는 선생님도 볼 수 있어요. 잊어버리면 선생님께 물어보거나 초기화를 부탁하세요.'),
+        h('p', { class: 'small muted' }, '다른 친구가 내 이름으로 들어오지 못하게 막아 줘요. 비밀번호는 선생님도 볼 수 없어요. 잊어버리면 선생님께 초기화를 부탁하세요.'),
         p1, p2, b, h('button', { class: 'btn full', onclick: () => loginView() }, '← 처음으로')));
       setTimeout(() => p1.focus(), 50);
     };
@@ -138,6 +139,7 @@ function startStudent(room, pv = null) {
     if (pv) { toast('미리보기예요 — 실제로 제출되지 않아요', 'ok'); sentFor[room$.act.id] = true; render(); return; }
     try {
       await Live.addResp(room, { kind: room$.kind, act: room$.act.id, q: room$.act.q || room$.act.title || '', date: room$.date || todayStr(), num: me.num, name: me.name, k: me.k, ...data });
+      clearDrafts(room$.act.id); logMine(room$, data);
       sentFor[room$.act.id] = true; toast('제출했어요! 👍', 'ok'); render();
     } catch (e) {
       console.error(e);
@@ -150,6 +152,37 @@ function startStudent(room, pv = null) {
   };
   const done = (msg) => h('div', { class: 'stu-done' }, h('div', { class: 'big' }, '✅'), h('h2', null, msg || '제출 완료!'), h('p', { class: 'muted' }, actId ? '다시 제출하면 최신 응답으로 바뀝니다. 다른 활동은 선생님이 보여 주는 그 활동의 QR로 들어오세요.' : '다시 제출하면 최신 응답으로 바뀝니다. 선생님이 다음 활동을 열면 화면이 자동으로 바뀌어요.'),
     h('button', { class: 'btn', onclick: () => { sentFor[room$.act.id] = false; render(); } }, '다시 제출하기'));
+  /* ✍️ 쓰던 글 자동 임시 저장 (와이파이가 끊겨도 안 날아가게) */
+  const dkey = (id, i) => `stu:draft:${room}:${id}:${me.num}:${i}`;
+  function draftify(root, id) {
+    if (pv) return;
+    $$('textarea, input.big-in:not([type=number]):not([type=password])', root).forEach((el, i) => {
+      const v = localStorage.getItem(dkey(id, i)); if (v && !el.value) el.value = v;
+      el.addEventListener('input', debounce(() => { try { localStorage.setItem(dkey(id, i), el.value); } catch { } }, 400));
+    });
+  }
+  function clearDrafts(id) { for (const k of Object.keys(localStorage)) if (k.startsWith(`stu:draft:${room}:${id}:`)) localStorage.removeItem(k); }
+  /* 📒 내 배움 기록 (이 휴대폰에만) */
+  function logMine(r$, data) {
+    if (pv) return;
+    const txt = data.summary || data.text || (data.answer != null ? ansText(data.answer) : '') || data.title || (data.picks ? `근거 문장 ${data.picks.length}개` : '') || (data.v ? '' : '');
+    if (r$.act && String(r$.act.id).startsWith('sig_')) return;
+    const L = JSON.parse(localStorage.getItem('stu:log:' + room) || '[]');
+    L.unshift({ at: Date.now(), kind: r$.kind, q: r$.act?.q || r$.act?.title || '', txt: String(txt).slice(0, 400) });
+    try { localStorage.setItem('stu:log:' + room, JSON.stringify(L.slice(0, 80))); } catch { }
+  }
+  function myLog() {
+    const L = JSON.parse(localStorage.getItem('stu:log:' + room) || '[]');
+    modal({ title: `📒 ${me.num}번 ${me.name}의 배움 기록`, body: L.length ? h('div', { class: 'mylog' }, L.map(x => h('div', { class: 'mylog-i' }, h('small', { class: 'muted' }, new Date(x.at).toLocaleDateString('ko-KR'), ' · ', KIND_LABEL[x.kind] || ''), x.q ? h('b', null, x.q) : null, x.txt ? h('div', null, x.txt) : null)))
+      : h('p', { class: 'muted' }, '아직 기록이 없어요. 배움열기·배움일기·과제를 내면 여기에 모여요.'), actions: [{ label: '닫기', primary: true }] });
+  }
+  /* 🙋 이해 신호 버튼 */
+  function sigBar() {
+    if (pv || !meOK() || $('.sig-bar', app)) return;
+    const s = v => async e => { const b = e.currentTarget; $$('.sig-bar button', app).forEach(x => x.classList.remove('on')); b.classList.add('on');
+      try { await Live.addResp(room, { kind: 'sig', act: 'sig_' + todayStr(), q: '', date: todayStr(), num: me.num, name: me.name, k: me.k, v }); toast(v === 'ok' ? '🙂 선생님께 전했어요' : '🤔 선생님께 전했어요 (이름은 선생님만 봐요)', 'ok'); } catch (er) { console.warn(er); toast('보내지 못했어요', 'err'); } };
+    app.append(h('div', { class: 'sig-bar' }, h('span', { class: 'small muted' }, '지금 수업'), h('button', { onclick: s('ok') }, '🙂 알겠어요'), h('button', { onclick: s('q') }, '🤔 잘 모르겠어요')));
+  }
   function render() {
     $('.subj', head).textContent = room$.subject || '수업'; if (!pv) document.title = room$.subject || '수업';
     if (room$.error) { view = 'err'; main.replaceChildren(h('div', { class: 'stu-card' }, h('h2', null, '연결 오류'), h('p', null, '선생님께 알려 주세요: ' + room$.error))); return; }
@@ -165,9 +198,12 @@ function startStudent(room, pv = null) {
     else if (k === 'share') main.replaceChildren(shareForm(a));
     else if (k === 'close') main.replaceChildren(closeForm(a));
     else if (k === 'hw') main.replaceChildren(hwStudentForm(a, room, me, send, pv));
+    else if (k === 'evid') main.replaceChildren(evidStudentForm(a, send));
+    if (k === 'open' || k === 'close' || k === 'hw') draftify(main, a.id);
+    sigBar();
   }
   function openForm(a) {
-    const card = h('div', { class: 'stu-card' }, h('div', { class: 'tag' }, '💡 배움열기'), h('h2', { class: 'q' }, a.q));
+    const card = h('div', { class: 'stu-card' }, h('div', { class: 'tag' }, '💡 배움열기'), h('h2', { class: 'q' }, a.q), h('div', { class: 'small share-note' }, '🙂 친구들 화면에는 이름 없이 보여요'));
     const btn = h('button', { class: 'btn primary lg full' }, '제출');
     let val = null;
     if (a.type === 'choice' || a.type === 'ox' || a.type === 'scale') {
@@ -256,7 +292,7 @@ function startStudent(room, pv = null) {
 /* 교사용: 학생 휴대폰 화면 미리보기 */
 function studentPreview(kind, act) {
   const screen = h('div', { class: 'phone-screen student-pv' });
-  const kinds = { open: '💡 배움열기', share: '🤝 배움공유', close: '🌱 배움마무리', hw: '📤 과제' };
+  const kinds = { open: '💡 배움열기', share: '🤝 배움공유', close: '🌱 배움마무리', hw: '📤 과제', evid: '🔎 근거 찾기' };
   const st = h('div', { class: 'present phone-wrap', onclick: e => { if (e.target === st) st.remove(); } },
     h('div', { class: 'phone-side' }, h('h2', null, '📱 학생 화면 미리보기'), h('p', null, kinds[kind] || ''), h('p', { class: 'muted small' }, '학생 휴대폰에 이렇게 보여요. 눌러 보고 써 봐도 실제로 제출되지는 않아요.'),
       h('button', { class: 'btn', onclick: () => startStudent(null, { kind, act, mount: screen }) }, '↺ 처음부터'), h('button', { class: 'btn primary', onclick: () => st.remove() }, '닫기')),

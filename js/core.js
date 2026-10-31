@@ -239,7 +239,7 @@ const FB = {
       if (firebase.auth) {
         this.auth = firebase.auth();
         this.auth.onAuthStateChanged(async u => {
-          this.user = u; emit('auth', u); if (u) this.warnIfNotTeacher();
+          this.user = u; if (u && !this.isTeacherEmail(u.email)) await this.loadTeachers(); emit('auth', u); if (u) this.warnIfNotTeacher();
           if (u && this.isTeacherEmail(u.email)) { try { const n = await Store.pullCloud(); if (n) toast(`클라우드에서 자료 ${n}건을 받아왔습니다`); } catch (e) { console.error(e); toast('클라우드 동기화 실패 — ' + fbWhy(e), 'err', 7000); } }
         });
       }
@@ -281,7 +281,15 @@ const FB = {
   },
   signOut() { this.auth && this.auth.signOut(); },
   /* 로그인한 계정이 선생님 목록(config.js TEACHER_EMAILS)에 있는지 */
-  isTeacherEmail(email) { const L = window.TEACHER_EMAILS; return !!email && (!L || !L.length || L.map(x => x.toLowerCase()).includes(String(email).toLowerCase())); },
+  isTeacherEmail(email) { const L = [...(window.TEACHER_EMAILS || []), ...(this.extraTeachers || [])]; return !!email && (!window.TEACHER_EMAILS || !window.TEACHER_EMAILS.length || L.map(x => x.toLowerCase()).includes(String(email).toLowerCase())); },
+  isAdmin() { const L = window.TEACHER_EMAILS || []; return !!this.user && L.map(x => x.toLowerCase()).includes(String(this.user.email).toLowerCase()); },
+  /* 함께 쓰는 선생님 목록 (서버 meta/teachers) — 목록에 있는 선생님만 읽을 수 있음 */
+  async loadTeachers() {
+    if (!this.ready || !this.user) return [];
+    try { const d = await this.db.collection('meta').doc('teachers').get(); this.extraTeachers = d.exists ? (d.data().emails || []) : []; } catch (e) { this.extraTeachers = this.extraTeachers || []; }
+    return this.extraTeachers;
+  },
+  async saveTeachers(list) { await this.db.collection('meta').doc('teachers').set({ emails: list, at: Date.now() }); this.extraTeachers = list; },
   isTeacher() { return !!this.user && this.isTeacherEmail(this.user.email); },
   warnIfNotTeacher() { if (this.user && !this.isTeacher()) toast(`지금 계정(${this.user.email})은 선생님 목록에 없어요. ${window.LOGIN_EMAIL || '등록된 계정'}으로 다시 로그인해 주세요.`, 'warn', 8000); },
   /* 목록에 있는 계정으로 로그인된 상태를 보장 (아니면 로그인 창을 띄움) */
@@ -328,7 +336,7 @@ const Live = {
     return () => { window.removeEventListener('storage', l); off(); };
   },
   async setRoom(room, data) {
-    data.updated = Date.now();
+    data.updated = Date.now(); if (FB.user) data.owner = FB.user.uid;
     if (this.cloud()) return FB.db.collection('rooms').doc(room).set(data);
     this._lsSet('room:' + room, data); emit('room', room);
   },
@@ -381,6 +389,7 @@ const Live = {
   },
   /* 방 문서 일부만 고치기 (그랑프리 알림 등) */
   async patchRoom(room, patch) {
+    if (FB.user) patch = { ...patch, owner: FB.user.uid };
     if (this.cloud()) return FB.db.collection('rooms').doc(room).set(patch, { merge: true });
     this._lsSet('room:' + room, { ...this._lsGet('room:' + room, {}), ...patch }); emit('room', room);
   },
@@ -398,17 +407,15 @@ const Live = {
   },
   /* 처음 비밀번호 정하기 */
   async claimPin(room, rid, k, who, pin) {
-    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(k), { num: who.num, name: who.name, rid }); b.update(r.collection('roster').doc(rid), { set: true }); b.set(r.collection('pins').doc(rid), { num: who.num, name: who.name, pin, k, at: Date.now() }); return b.commit(); }
+    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(k), { num: who.num, name: who.name, rid }); b.update(r.collection('roster').doc(rid), { set: true }); return b.commit(); }   // 비밀번호는 저장하지 않음 (섞은 값만)
     const ro = this._lsGet('roster:' + room, {}); if (!ro[rid] || ro[rid].set) throw Object.assign(new Error('이미 정해졌어요'), { code: 'permission-denied' });
     const ks = this._lsGet('keys:' + room, {}); ks[k] = { num: who.num, name: who.name, rid }; ro[rid].set = true; this._lsSet('keys:' + room, ks); this._lsSet('roster:' + room, ro);
-    const ps = this._lsGet('pins:' + room, {}); ps[rid] = { num: who.num, name: who.name, pin, k, at: Date.now() }; this._lsSet('pins:' + room, ps);
   },
   /* 비밀번호 바꾸기 (지금 비밀번호를 아는 사람만) */
   async changePin(room, oldk, newk, who, rid, pin) {
-    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(newk), { num: who.num, name: who.name, rid, oldk }); b.delete(r.collection('keys').doc(oldk)); b.set(r.collection('pins').doc(rid), { num: who.num, name: who.name, pin, k: newk, at: Date.now() }); return b.commit(); }
+    if (this.cloud()) { const r = this._rref(room), b = FB.db.batch(); b.set(r.collection('keys').doc(newk), { num: who.num, name: who.name, rid, oldk }); b.delete(r.collection('keys').doc(oldk)); return b.commit(); }
     const ks = this._lsGet('keys:' + room, {}); if (!ks[oldk]) throw Object.assign(new Error('지금 비밀번호가 맞지 않아요'), { code: 'permission-denied' });
     delete ks[oldk]; ks[newk] = { num: who.num, name: who.name, rid }; this._lsSet('keys:' + room, ks);
-    const ps = this._lsGet('pins:' + room, {}); ps[rid] = { num: who.num, name: who.name, pin, k: newk, at: Date.now() }; this._lsSet('pins:' + room, ps);
   },
   /* 교사: 명단 올리기 (비밀번호 정한 상태는 그대로 둠, 명단에서 빠진 학생의 비밀번호는 지움) */
   async putRoster(room, map, meta) {
@@ -418,9 +425,9 @@ const Live = {
       ro.forEach(d => { if (map[d.id]) have.add(d.id); else ops.push(['del', d.ref]); });
       for (const [rid, v] of Object.entries(map)) if (!have.has(rid)) ops.push(['set', rc.doc(rid), { ...v, set: false }]);
       ks.forEach(d => { const x = d.data(); if (!x.rid || !map[x.rid]) ops.push(['del', d.ref]); });
-      try { (await r.collection('pins').get()).forEach(d => { if (!map[d.id]) ops.push(['del', d.ref]); }); } catch (e) { console.warn('pins', e); }
+      try { (await r.collection('pins').get()).forEach(d => ops.push(['del', d.ref])); } catch (e) { console.warn('pins', e); }   // 예전에 저장된 비밀번호는 모두 지움
       for (let i = 0; i < ops.length; i += 400) { const b = FB.db.batch(); ops.slice(i, i + 400).forEach(([t, ref, v]) => t === 'del' ? b.delete(ref) : b.set(ref, v)); await b.commit(); }
-      await r.set(meta, { merge: true });
+      await r.set({ ...meta, ...(FB.user ? { owner: FB.user.uid } : {}) }, { merge: true });
       return;
     }
     const ro = this._lsGet('roster:' + room, {}), out = {};
@@ -433,12 +440,11 @@ const Live = {
   /* 교사: 비밀번호 정했는지 한눈에 { rid: true/false } */
   async rosterStatus(room) {
     if (this.cloud()) {
-      const r = this._rref(room), [s, p] = await Promise.all([r.collection('roster').get(), r.collection('pins').get().catch(() => null)]); const m = {}, pins = {};
-      p && p.forEach(d => pins[d.id] = d.data());
-      s.forEach(d => m[d.id] = { set: !!d.data().set, pin: d.data().set ? (pins[d.id]?.pin || '') : '' }); return m;
+      const s = await this._rref(room).collection('roster').get(), m = {};
+      s.forEach(d => m[d.id] = { set: !!d.data().set }); return m;
     }
     const ro = this._lsGet('roster:' + room, {}), ps = this._lsGet('pins:' + room, {});
-    return Object.fromEntries(Object.entries(ro).map(([k, v]) => [k, { set: !!v.set, pin: v.set ? (ps[k]?.pin || '') : '' }]));
+    return Object.fromEntries(Object.entries(ro).map(([k, v]) => [k, { set: !!v.set }]));
   },
   /* 교사: 비밀번호 초기화 → 학생이 다음에 들어올 때 새로 정함 */
   async resetPin(room, rids) {
@@ -476,7 +482,7 @@ const Keys = {
     if (!cls.room) cls.room = uid(10);
     const entries = await Promise.all(S.students(cls).filter(s => s.name).map(async s => [await this.rid(cls.room, s.num, s.name), { num: this.numN(s.num), name: String(s.name).trim() }]));
     const meta = { classLabel: cls.name, subject: Brand.get().subject, siblings: this.siblings() };
-    const sig = await this.hash(cls.room, entries.map(e => e[0]).sort().join(','), JSON.stringify(meta), 'v2');
+    const sig = await this.hash(cls.room, entries.map(e => e[0]).sort().join(','), JSON.stringify(meta), 'v3');
     if (!force && cls.keysSig === sig) return false;
     await Live.putRoster(cls.room, Object.fromEntries(entries), meta);
     cls.keysSig = sig; return true;
@@ -512,7 +518,17 @@ const AI = {
     try { this.__s = window.claude && window.claude.use ? await window.claude.use('sample') : null; } catch { this.__s = null; }
     return this.__s;
   },
-  async ask(prompt, { system = '', json = true, maxTokens = 12000, onText, images = [] } = {}) {
+  /* 학생 이름은 AI로 보내지 않는다: 모든 학급 명렬표의 이름을 ○○로 바꿈. strong이면 성 뺀 이름(민지)도 */
+  noNames(t, strong) {
+    try {
+      const names = new Set();
+      (Store.get('classes', []) || []).forEach(c => (c.students || []).forEach(s => { const n = String(s.name || '').trim(); if (n.length >= 2) { names.add(n); if (strong && n.length >= 3) names.add(n.slice(1)); } }));
+      [...names].sort((a, b) => b.length - a.length).forEach(n => { t = t.split(n).join('○○'); });
+    } catch { }
+    return t;
+  },
+  async ask(prompt, { system = '', json = true, maxTokens = 12000, onText, images = [], strong = false } = {}) {
+    prompt = this.noNames(String(prompt), strong);
     let text = '';
     if (await this._server()) {
       if (!FB.user) throw new Error('교사 로그인 후 AI를 쓸 수 있어요.');
@@ -742,6 +758,10 @@ function inkToolbar(ink, { colors = PEN_COLORS, onToggle, extra = [], toggle = t
   const rMenu = h('span', { class: 'ruler-menu' }, RULERS.map(([t, i, n]) => { const b = h('button', { class: 'ib', title: n, onclick: () => { lastRuler = t; Store.set('local:ruler', t); rBtn.firstChild ? rBtn.textContent = i : 0; rMenu.classList.remove('show'); setTool(t); } }, h('span', null, i), h('small', null, n)); b.dataset.r = t; return b; }));
   const ruler = h('span', { class: 'ruler-wrap' }, rBtn, rMenu);
   tools.splice(2, 0, ruler);
+  // 필기 도구 접기 (화면을 깔끔하게 — 기억함)
+  const foldB = btn('', '필기 도구 접기/펴기', () => { const v = !bar.classList.contains('folded'); bar.classList.toggle('folded', v); Store.set('local:inkFold', v); foldB.textContent = v ? '🖊 펴기' : '◂ 접기'; }, 'ink-fold');
+  bar.classList.toggle('folded', !!Store.get('local:inkFold', false)); foldB.textContent = bar.classList.contains('folded') ? '🖊 펴기' : '◂ 접기';
+  bar.append(foldB);
   bar.append(...[tg, h('span', { class: 'sep' }), ...tools, esz, h('span', { class: 'sep' }), ...sw, size, h('span', { class: 'sep' }),
     btn('↶', '되돌리기', () => ink.undo()), btn('↷', '다시', () => ink.redo()),
     btn('🗑', '이 화면 필기 지우기', async () => { if (await confirmBox('필기를 모두 지울까요?', '지우기', true)) ink.clear(); }), ...extra].filter(Boolean));

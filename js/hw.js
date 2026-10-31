@@ -49,6 +49,44 @@ Object.assign(Live, {
   }
 });
 const b64of = file => readFileAs(file).then(u => String(u).split(',')[1] || '');
+/* 🎬 영상 줄이기: 휴대폰에서 다시 녹화해 화질·용량을 낮춤 (영상 길이만큼 걸림) */
+const VID_MAX_SEC = 300;
+function canShrinkVideo() { return !!(window.MediaRecorder && HTMLCanvasElement.prototype.captureStream && (window.AudioContext || window.webkitAudioContext)); }
+async function shrinkVideo(file, onP, actx) {
+  const url = URL.createObjectURL(file);
+  const v = document.createElement('video'); v.src = url; v.playsInline = true; v.preload = 'auto'; v.setAttribute('playsinline', '');
+  v.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px';
+  document.body.append(v);
+  try {
+    await new Promise((res, rej) => { v.onloadedmetadata = res; v.onerror = () => rej(new Error('이 영상을 열 수 없어요')); });
+    const dur = v.duration || 0;
+    if (!isFinite(dur) || dur <= 0) throw new Error('영상 길이를 알 수 없어요');
+    if (dur > VID_MAX_SEC) throw new Error(`영상이 ${Math.round(dur / 60)}분이에요. 5분이 넘는 영상은 유튜브·드라이브에 올리고 링크로 내 주세요`);
+    const H = dur > 150 ? 360 : 480, sc = Math.min(1, H / Math.min(v.videoWidth, v.videoHeight) || 1);
+    const w = Math.round(v.videoWidth * sc / 2) * 2, hh = Math.round(v.videoHeight * sc / 2) * 2;
+    const cv = document.createElement('canvas'); cv.width = w; cv.height = hh; const ctx = cv.getContext('2d');
+    const vs = cv.captureStream(24);
+    // 소리: 스피커로는 내보내지 않고 녹화에만
+    const src = actx.createMediaElementSource(v), dest = actx.createMediaStreamDestination(); src.connect(dest);
+    const stream = new MediaStream([...vs.getVideoTracks(), ...dest.stream.getAudioTracks()]);
+    const types = ['video/mp4;codecs=avc1', 'video/mp4', 'video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'];
+    const mimeType = types.find(t => MediaRecorder.isTypeSupported(t)) || '';
+    const vbps = Math.max(250000, Math.min(1200000, Math.floor((13.5 * 1048576 * 8) / dur) - 96000));
+    const rec = new MediaRecorder(stream, { ...(mimeType ? { mimeType } : {}), videoBitsPerSecond: vbps, audioBitsPerSecond: 64000 });
+    const chunks = []; rec.ondataavailable = e => e.data.size && chunks.push(e.data);
+    const stopped = new Promise(r => rec.onstop = r);
+    let raf = 0; const draw = () => { ctx.drawImage(v, 0, 0, w, hh); onP && onP(Math.min(0.99, v.currentTime / dur)); if (!v.ended) raf = requestAnimationFrame(draw); };
+    if (actx.state === 'suspended') await actx.resume();
+    rec.start(1000); await v.play(); draw();
+    await new Promise(r => v.onended = r);
+    cancelAnimationFrame(raf); rec.stop(); await stopped;
+    const type = (rec.mimeType || mimeType || 'video/webm').split(';')[0];
+    const blob = new Blob(chunks, { type });
+    if (!blob.size) throw new Error('영상을 줄이지 못했어요');
+    const ext = type.includes('mp4') ? 'mp4' : 'webm';
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '_줄임.' + ext, { type });
+  } finally { URL.revokeObjectURL(url); v.remove(); }
+}
 
 /* ---------- 🧑‍🎓 학생 화면: 과제 제출 ---------- */
 function hwStudentForm(a, room, me, sendFn, pv) {
@@ -60,21 +98,35 @@ function hwStudentForm(a, room, me, sendFn, pv) {
   const links = h('textarea', { class: 'big-in', rows: 2, placeholder: '링크 (유튜브·드라이브 등, 한 줄에 하나 · 선택)' });
   let files = [];
   const list = h('div', { class: 'hw-files' });
-  const drawFiles = () => list.replaceChildren(...files.map((f, i) => h('div', { class: 'hw-file' }, h('span', null, HW.icon(f.type)), h('span', { class: 'grow' }, f.name, h('small', { class: 'muted' }, ' ' + HW.fmtSize(f.size))),
+  const drawFiles = () => list.replaceChildren(...files.map((f, i) => h('div', { class: 'hw-file' }, h('span', null, HW.icon(f.type)), h('span', { class: 'grow' }, f.name, h('small', { class: 'muted' }, ' ' + HW.fmtSize(f.size)), f._shrink ? h('small', { class: 'hw-shrink' }, ' 🎬 제출할 때 줄여요') : null),
     h('button', { class: 'x', onclick: () => { files.splice(i, 1); drawFiles(); } }, '✕'))));
   const pickB = h('button', { class: 'btn full', onclick: () => {
     const inp = h('input', { type: 'file', multiple: true }); inp.onchange = () => {
-      for (const f of inp.files) { if (f.size > HW_MAX) { toast(`${f.name}: 15MB보다 커요. 영상은 유튜브·드라이브에 올리고 링크로 내 주세요`, 'warn', 6000); continue; } files.push(f); }
+      for (const f of inp.files) {
+        if (f.size > HW_MAX) {
+          if (/^video\//.test(f.type) && canShrinkVideo() && f.size < 1500 * 1048576) { f._shrink = true; files.push(f); toast(`🎬 ${f.name}: 커서 제출할 때 자동으로 줄여요 (영상 길이만큼 걸려요)`, 'ok', 5000); continue; }
+          toast(`${f.name}: 15MB보다 커요. ${/^video\//.test(f.type) ? '이 휴대폰에서는 영상을 줄일 수 없어요. ' : ''}유튜브·드라이브에 올리고 링크로 내 주세요`, 'warn', 7000); continue;
+        }
+        files.push(f);
+      }
       if (files.length > 10) { files = files.slice(0, 10); toast('파일은 10개까지 낼 수 있어요', 'warn'); } drawFiles();
     }; inp.click();
-  } }, '📎 파일 올리기 (사진·영상·발표 자료·한글·PDF 등, 하나에 15MB까지)');
+  } }, '📎 파일 올리기 (사진·영상·발표 자료·한글·PDF 등)');
   const prog = h('div', { class: 'hw-prog' });
   const btn = h('button', { class: 'btn primary lg full' }, late ? '늦게 제출하기' : '과제 제출');
   btn.onclick = async () => {
     if (!txt.value.trim() && !links.value.trim() && !files.length) return toast('글·링크·파일 중 하나는 넣어 주세요', 'warn');
     if (pv) { toast('미리보기예요 — 실제로 제출되지 않아요', 'ok'); return; }
     btn.disabled = true; btn.textContent = '올리는 중…';
+    let actx = null; if (files.some(f => f._shrink)) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); actx.resume(); } catch { } }
     try {
+      for (let i = 0; i < files.length; i++) {
+        const f = files[i]; if (!f._shrink) continue;
+        prog.textContent = `🎬 ${f.name} 줄이는 중… 0% (끝날 때까지 화면을 켜 두세요)`;
+        const out = await shrinkVideo(f, p => prog.textContent = `🎬 ${f.name} 줄이는 중… ${Math.round(p * 100)}% (끝날 때까지 화면을 켜 두세요)`, actx);
+        if (out.size > HW_MAX) throw new Error('줄여도 15MB가 넘어요. 유튜브·드라이브 링크로 내 주세요');
+        files[i] = out; drawFiles();
+      }
       const metas = [];
       for (let i = 0; i < files.length; i++) {
         const f = files[i]; prog.textContent = `${i + 1}/${files.length} ${f.name} 올리는 중…`;
@@ -87,13 +139,14 @@ function hwStudentForm(a, room, me, sendFn, pv) {
       prog.textContent = '';
       await sendFn({ text: txt.value.trim(), links: links.value.split('\n').map(x => x.trim()).filter(Boolean), files: metas, late: !!late }, btn);
       localStorage.setItem('stu:hw:' + a.id + ':' + me.num, JSON.stringify({ at: Date.now(), n: metas.length }));
-    } catch (e) { console.error(e); prog.textContent = ''; btn.disabled = false; btn.textContent = '과제 제출'; toast('올리지 못했어요: ' + (e.code || e.message), 'err', 6000); }
+    } catch (e) { console.error(e); prog.textContent = ''; btn.disabled = false; btn.textContent = '과제 제출'; toast('올리지 못했어요: ' + (e.code || e.message), 'err', 7000); }
+    finally { try { actx && actx.close(); } catch { } }
   };
   card.append(h('div', { class: 'tag' }, '📤 과제'), h('h2', { class: 'q' }, a.title),
     a.desc ? h('div', { class: 'guide' }, a.desc) : null,
     h('div', { class: 'row gap wrap small' }, h('span', { class: 'tag' + (late ? ' bad' : '') }, '⏰ ', HW.dueText(a.due), late ? ' · 마감 지남' : ''), a.max ? h('span', { class: 'tag' }, `만점 ${a.max}점`) : null),
     mine ? h('div', { class: 'okbox small' }, `✅ ${new Date(mine.at).toLocaleString('ko-KR')}에 제출했어요. 다시 내면 새 제출로 바뀌어요.`) : null,
-    fbBox, txt, links, pickB, list, prog, btn);
+    fbBox, txt, links, pickB, h('small', { class: 'muted' }, '파일 하나에 15MB까지 · 큰 영상(5분 이하)은 제출할 때 자동으로 줄여요 · 더 긴 영상은 링크로'), list, prog, btn);
   if (!pv && me.k) Live.getFeedback(room, HW.fbId(a.id, me.k)).then(fb => { if (fb) fbBox.replaceChildren(h('div', { class: 'hw-fb' }, h('b', null, '🧑‍🏫 선생님 평가'),
     fb.score !== '' && fb.score != null ? h('div', { class: 'hw-score' }, fb.score, a.max ? h('small', null, ` / ${a.max}점`) : null) : null, fb.grade ? h('span', { class: 'tag' }, fb.grade) : null,
     fb.comment ? h('p', null, fb.comment) : null)); }).catch(() => { });
@@ -189,7 +242,7 @@ function hwDetail(a, r, room, redraw) {
   const memo = h('textarea', { class: 'full', rows: 2, placeholder: '나만 볼 메모 (학생에게 안 보여요)' }); memo.value = r.tmemo || '';
   const aiBtn = h('button', { class: 'btn sm ai-btn', onclick: () => withBusy(aiBtn, '쓰는 중…', async () => {
     if (!(await AI.available())) return toast('AI를 쓸 수 없어요', 'warn');
-    const t = await AI.ask(`고등학생 과제에 대한 교사 코멘트 초안을 2~3문장으로 써라. 잘한 점 1가지, 고칠 점 1가지를 구체적으로. 따뜻하지만 정확하게. 해요체.\n[과제] ${a.title}\n${a.desc || ''}\n[학생 글]\n${(r.text || '(글 없음, 파일 제출)').slice(0, 3000)}\n[첨부] ${(r.files || []).map(f => f.name).join(', ')}`, { json: false, maxTokens: 600 });
+    const t = await AI.ask(`고등학생 과제에 대한 교사 코멘트 초안을 2~3문장으로 써라. 잘한 점 1가지, 고칠 점 1가지를 구체적으로. 따뜻하지만 정확하게. 해요체.\n[과제] ${a.title}\n${a.desc || ''}\n[학생 글]\n${(r.text || '(글 없음, 파일 제출)').slice(0, 3000)}\n[첨부] ${(r.files || []).map(f => f.name).join(', ')}`, { json: false, maxTokens: 600, strong: true });
     cm.value = String(t).trim();
   }) }, '✨ AI 코멘트 초안');
   modal({ title: `📤 ${r.num}번 ${r.name} — ${a.title}`, wide: true,

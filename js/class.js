@@ -154,6 +154,7 @@ function renderHome() {
       mode('m-lec', '講', '강의', () => location.hash = '#learn', [chip('📖', '지문', () => location.hash = '#learn'), chip('🖍', '칠판', () => location.hash = '#board'), chip('📄', '학습지', () => location.hash = '#sheet'), chip('🎬', '영상', () => Video.manager('global'))]),
       mode('m-grp', '共', '모둠', () => location.hash = '#share', [chip('👥', '모둠 짜기', () => Groups.open()), chip('⏱', '타이머', () => Timer.open()), chip('🤝', '활동', () => location.hash = '#share')]),
       mode('m-pre', '言', '발표', () => location.hash = '#share', [chip('🎲', '순서 뽑기', () => Picker.open()), chip('🖥', '발표 화면', () => location.hash = '#share'), chip('⏱', '타이머', () => Timer.open())])),
+    firstRunCard(),
     h('div', { class: 'flow' }, flow.map(([i, t, href], k) => [k ? h('div', { class: 'sf-line' }) : null, h('a', { class: 'flow-step', href }, blossom(i, k * 23), h('div', { class: 'fs-t' }, t))])),
     h('div', { class: 'home-admin' }, HOME_ADMIN.map(k => { const [, i, l] = ROUTES[k]; return h('a', { class: 'ha-item', href: '#' + k }, h('span', { class: 'ha-ic' }, i), h('span', { class: 'ha-t' }, l), LOCKED.includes(k) ? h('small', { class: 'ha-lock' }, '🔒') : null); }))
   ));
@@ -214,6 +215,7 @@ function statsView(act, list) {
     const opts = act.type === 'scale' ? ['1', '2', '3', '4', '5'] : act.type === 'ox' ? ['O', 'X'] : act.options;
     const counts = opts.map(o => list.filter(r => (Array.isArray(r.answer) ? r.answer : [String(r.answer)]).includes(o)).length);
     const cv = h('canvas'); box.append(h('div', { class: 'chart-box' }, cv));
+    if (act.answer && list.length) { const ok = list.filter(r => String(Array.isArray(r.answer) ? r.answer.join(',') : r.answer) === String(act.answer)).length; box.append(h('div', { class: 'mean' }, `정답률 ${Math.round(ok / list.length * 100)}% (${ok}/${list.length}명)`, ok / list.length < 0.5 ? h('b', { class: 'warn-t' }, ' — 이 문제부터 해설해요') : null)); }
     if (act.type === 'scale' && list.length) box.append(h('div', { class: 'mean' }, '평균 ', (list.reduce((a, r) => a + (+r.answer || 0), 0) / list.length).toFixed(2), ' / 5'));
     setTimeout(() => {
       if (!window.Chart) { cv.replaceWith(h('div', null, opts.map((o, i) => h('div', null, `${o}: ${counts[i]}`)))); return; }
@@ -229,7 +231,7 @@ function statsView(act, list) {
   return box;
 }
 /* ---------- 응답 벽 (배움열기·배움마무리 공용): 공유 · 👍 교사 추천 · ✨ AI 추천 ---------- */
-const WallState = { filter: 'all', hide: false };
+const WallState = { filter: 'all', hide: Store.get('local:wallHide', true), pick: null };
 // 배움마무리: 함께 보는 화면·AI 추천에는 배움일기만 (역량 어필은 선생님만)
 const respText = r => r.kind === 'close' ? (r.summary || '') : ansText(r.answer);
 function wallBox(list, room, q, redraw) {
@@ -238,7 +240,7 @@ function wallBox(list, room, q, redraw) {
   const aiBtn = h('button', { class: 'btn sm ai-btn', onclick: () => withBusy(aiBtn, 'AI가 읽는 중…', () => aiRecommend(list, room, q, redraw)) }, '✨ AI 추천');
   const shown = list.filter(r => WallState.filter === 'all' || (WallState.filter === 'star' && r.star) || (WallState.filter === 'ai' && r.ai) || (WallState.filter === 'gp' && r.gp));
   const name = r => WallState.hide ? '🙂' : `${r.num} ${r.name}`;
-  const cards = shown.map((r, i) => h('div', { class: 'wall-card' + (r.star ? ' star' : '') + (r.ai ? ' ai' : '') + (r.gp ? ' gp' : ''), onclick: () => spotlight(shown, i, q, room, list) },
+  const cards = shown.map((r, i) => h('div', { class: 'wall-card' + (WallState.pick && WallState.pick.includes(r) ? ' picked' : '') + (r.star ? ' star' : '') + (r.ai ? ' ai' : '') + (r.gp ? ' gp' : ''), onclick: () => { if (WallState.pick) { if (!WallState.pick.includes(r)) WallState.pick.push(r); if (WallState.pick.length === 2) { const [x, y] = WallState.pick; WallState.pick = null; redraw(); compareTwo(x, y, q); } else redraw(); return; } spotlight(shown, i, q, room, list); } },
     h('div', { class: 'wc-name' }, h('span', null, name(r)), h('span', { class: 'grow' }),
       r.gp ? h('span', { class: 'badge-gp' }, '🏆 그랑프리') : null,
       r.ai ? h('span', { class: 'badge-ai', title: r.aiWhy || '' }, '✨ AI') : null,
@@ -254,7 +256,8 @@ function wallBox(list, room, q, redraw) {
       h('button', { class: 'x', title: '삭제', onclick: async e => { e.stopPropagation(); if (await confirmBox('이 응답을 삭제할까요?', '삭제', true)) Live.delResp(room, r.id); } }, '✕'))));
   return h('div', { class: 'wall-wrap' },
     h('div', { class: 'wall-bar' }, f('all', `전체 ${list.length}`), f('gp', `🏆 그랑프리 ${nG}`), f('star', `👍 추천 ${nT}`), f('ai', `✨ AI ${nA}`), h('span', { class: 'grow' }),
-      h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: WallState.hide, onchange: e => { WallState.hide = e.target.checked; redraw(); } }), ' 이름 숨기기'), aiBtn),
+      h('label', { class: 'small' }, h('input', { type: 'checkbox', checked: WallState.hide, onchange: e => { WallState.hide = e.target.checked; Store.set('local:wallHide', WallState.hide); redraw(); } }), ' 이름 숨기기'),
+      h('button', { class: 'btn sm' + (WallState.pick ? ' on' : ''), title: '응답 두 개를 골라 이름 없이 나란히 보기', onclick: () => { WallState.pick = WallState.pick ? null : []; redraw(); if (WallState.pick) toast('비교할 응답 두 개를 눌러 주세요', 'ok'); } }, WallState.pick ? `⚖️ 고르는 중 ${WallState.pick.length}/2` : '⚖️ 두 응답 비교'), aiBtn),
     h('div', { class: 'wall' }, cards.length ? cards : emptyPic(WallState.filter === 'all' ? '📮' : WallState.filter === 'gp' ? '🏆' : '👍', WallState.filter === 'all' ? '응답을 기다리는 중…' : WallState.filter === 'gp' ? '그랑프리를 받은 응답이 아직 없어요' : '추천한 응답이 아직 없어요')));
 }
 /* 한 응답 크게 보기 (←/→ 넘기기) */
@@ -288,7 +291,7 @@ ${cand.map((r, i) => `<${i}> ${respText(r).slice(0, 700)}`).join('\n')}
 과제: 반 전체가 함께 보며 배울 만한 '잘한 응답'을 ${n}개 이내로 골라라.
 기준: 질문에 정확히 답함 / 구체적인 근거·장면 / 자기 생각과 성찰 / 다른 학생이 배울 점. 길이만 보고 고르지 말고, 서로 다른 관점이 드러나게 골라라.
 why는 학생에게 화면으로 보여 줄 칭찬 한 문장(구체적으로 무엇이 좋은지).
-JSON만: {"picks":[{"i":번호,"why":"..."}]}`);
+JSON만: {"picks":[{"i":번호,"why":"..."}]}`, { strong: true });
   const picks = new Map((res.picks || []).filter(p => cand[+p.i]).map(p => [cand[+p.i].id, p.why || '']));
   await Promise.all(list.map(r => (picks.has(r.id) || r.ai) ? Live.updateResp(room, r.id, { ai: picks.has(r.id), aiWhy: picks.get(r.id) || '' }) : null));
   WallState.filter = 'ai'; redraw && redraw();
@@ -406,7 +409,7 @@ async function deckAI(r) {
 JSON만: {"slides":[{"title":"","points":[""]}]}
 [발표 주제] ${r.title || ''}
 [발표 내용]
-${String(r.content || '').slice(0, 6000)}`, { maxTokens: 2000 });
+${String(r.content || '').slice(0, 6000)}`, { maxTokens: 2000, strong: true });
   const sl = (res.slides || []).filter(x => x && x.title).slice(0, 5).map(x => ({ title: String(x.title), points: (x.points || []).map(String).slice(0, 5) }));
   if (sl.length < 1) throw new Error('요약 실패');
   return sl;

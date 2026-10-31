@@ -2,7 +2,7 @@
 /* =========================================================
    앱 뼈대 · 라우터 · 시작
    ========================================================= */
-const APP_VER = '2026.10.30-k19';
+const APP_VER = '2026.10.31-m2';
 const View = { cleanup: [] };
 const ROUTES = {
   home: [renderHome, '🏠', '홈'],
@@ -37,6 +37,7 @@ async function route() {
   document.body.dataset.view = k;
   $$('#nav a').forEach(a => a.classList.toggle('on', a.getAttribute('href') === '#' + k));
   adminRail(k);
+  flowNav(k); Signal.mount && Signal.mount();
   try { ROUTES[k][0](); } catch (e) { console.error(e); $('#view').replaceChildren(h('div', { class: 'empty' }, '화면을 그리는 중 오류가 났습니다: ' + e.message)); }
 }
 /* 홈이 아닌 화면: 관리 메뉴를 오른쪽에 세로로 작게 */
@@ -52,7 +53,8 @@ function buildShell() {
     idx === 1 ? h('div', { class: 'nav-sec' }, '수업') : null, idx === 5 ? h('div', { class: 'nav-sec' }, '수업 도구') : null,
     h('a', { href: '#' + k, title: l }, h('span', { class: 'ni' }, i), h('span', { class: 'nl' }, l))]));
   const foot = h('div', { id: 'side-foot' });
-  const side = h('aside', { id: 'side' }, h('div', { class: 'brand' }, h('span', { class: 'logo seal len' + Math.min(Brand.get().logo.length, 4) + (Brand.get().teacher ? ' name' : '') }, Brand.get().logo), h('span', { class: 'nl' }, h('b', null, Brand.get().title), h('small', null, Brand.get().subject))), nav, foot);
+  const side = h('aside', { id: 'side' }, h('div', { class: 'brand' }, h('span', { class: 'logo seal len' + Math.min(Brand.get().logo.length, 4) + (Brand.get().teacher ? ' name' : '') }, Brand.get().logo), h('span', { class: 'nl' }, h('b', null, Brand.get().title), h('small', null, Brand.get().subject))), nav, foot,
+    h('button', { class: 'side-fold', title: '메뉴 접기/펴기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, h('span', { class: 'sf-c' }, '◀ 메뉴 접기'), h('span', { class: 'sf-o' }, '▶')));
   const top = h('header', { id: 'top' });
   const app = $('#app');
   app.replaceChildren(side, h('div', { id: 'main' }, top, h('section', { id: 'view' })));
@@ -70,6 +72,9 @@ function refreshTop() {
   top.replaceChildren(h('span', { id: 'clockSlot' }),
     h('button', { class: 'ib', title: '메뉴 접기', onclick: () => { document.body.classList.toggle('collapsed'); Store.set('local:collapsed', document.body.classList.contains('collapsed')); setTimeout(() => window.dispatchEvent(new Event('resize')), 250); } }, '☰'),
     cls, les, h('span', { class: 'grow' }),
+    h('button', { class: 'ib top-mini', title: '수업 화면: 선생님 도구를 숨기고 내용만 (Esc 두 번으로 끄기)', onclick: () => Stage.toggle() }, '🎬'),
+    h('button', { class: 'ib top-mini', title: '글씨 크기·진한 색', onclick: e => View2.menu(e.currentTarget) }, '가'),
+    h('a', { class: 'ib top-mini', title: '사용 안내', href: '#settings', onclick: () => Store.set('local:setTab', 'guide') }, '❓'),
     h('div', { class: 'tools' }, [['⏱', '타이머', () => Timer.open()], ['🎲', '발표뽑기', () => Picker.open()], ['👥', '모둠뽑기', () => Groups.open()], ['🎬', '영상', () => Video.manager('global', '공통')], ['🖼', '이미지', () => Pics.open()], ['⛶', '전체', () => toggleFull()]]
       .map(([i, l, f]) => h('button', { class: 'tool', title: l, onclick: f }, h('span', null, i), h('small', null, l)))));
 }
@@ -105,6 +110,7 @@ const Gate = {
       show('로그인 상태를 확인하는 중…');
       let denied = '';
       const off = FB.auth.onAuthStateChanged(u => {
+        if (u && !FB.isTeacherEmail(u.email)) { FB.loadTeachers().then(() => { if (FB.isTeacherEmail(u.email)) { off(); res(true); } else { show(`${u.email} 계정은 등록된 교사 계정이 아니에요. 관리 선생님께 [함께 쓰는 선생님]에 추가해 달라고 하세요.`); FB.auth.signOut(); } }); return; }
         if (u && FB.isTeacherEmail(u.email)) { off(); res(true); return; }
         if (u) { denied = `${u.email} 계정은 등록된 교사 계정이 아니에요. 등록된 계정으로 로그인해 주세요.`; show(denied); FB.auth.signOut(); return; }
         show(denied); denied = '';
@@ -113,6 +119,9 @@ const Gate = {
   }
 };
 
+/* 발표·전체 화면: 마우스를 멈추면 아래 도구줄이 스르르 숨음 */
+(() => { let t = 0; const wake = () => { document.body.classList.remove('idle'); clearTimeout(t); t = setTimeout(() => { if (document.querySelector('.present')) document.body.classList.add('idle'); }, 2500); };
+  ['mousemove', 'pointerdown', 'keydown', 'touchstart'].forEach(ev => document.addEventListener(ev, wake, { passive: true })); })();
 (async function boot() {
   await Store.init();
   try { if (Store.get('local:ai')) Store.del('local:ai'); } catch { }   // 예전에 브라우저에 넣어 둔 AI 키는 지움 (이제 Vercel에만 둠)
@@ -128,13 +137,14 @@ const Gate = {
   const ui = S.ui();
   if ((!ui.classId || !S.cls()) && S.classes()[0]) S.setUI({ classId: S.classes()[0].id });
   if (ui.lessonId && !S.lesson()) S.setUI({ lessonId: '', chapterId: '' });
+  View2.apply(); Net.mount(); if (Store.get('local:stage')) Stage.set(true);
   route();
   Bell.mount();
   Intro.play();
   window.addEventListener('hashchange', route);
   on('auth', u => { if (!u || !FB.isTeacher()) { location.replace(location.pathname + location.hash); return; } refreshFoot(); if (location.hash === '#settings') route(); if (u && FB.isTeacher()) setTimeout(() => Keys.syncAll().catch(e => console.warn('명단 올리기 실패', e)), 1500); });
   on('pulled', () => { Brand.apply(); buildShell(); route(); });
-  on('classes', refreshTop); on('lessons', refreshTop); on('ui', refreshTop);
+  on('classes', refreshTop); on('lessons', refreshTop); on('ui', () => { refreshTop(); Signal.mount(); });
   on('rerender', () => { refreshTop(); route(); });
   on('store', k => { if (k === 'brand') { Brand.apply(); buildShell(); route(); } });
   on('syncerr', debounce(e => toast('클라우드 저장 실패 — ' + fbWhy(e), 'err', 6000), 4000));
